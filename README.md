@@ -25,6 +25,8 @@ node dist/cli/index.js doctor
 - [架构设计](docs/AI_WORKFORCE_OS_ARCHITECTURE.md)
 - [技术栈](docs/TECH_STACK.md)
 - [首批交付与后续工作](docs/BOOTSTRAP.md)
+- [Agent 开发与协作规范](AGENTS.md)
+- [审查处置与验收记录](docs/reviews/PARENT_ACCEPTANCE.md)
 - [迁移来源](NOTICE.md)
 
 旧项目的审计与 Phase 记录保留为迁移背景，其中的命令与实现状态只适用于原仓库，不表示本项目已有这些能力。
