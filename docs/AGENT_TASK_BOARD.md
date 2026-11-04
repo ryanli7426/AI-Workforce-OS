@@ -72,13 +72,15 @@
 
 组合门禁：38文件、577测试通过，无跳过，类型检查/构建/smoke/依赖扫描通过。真实本地 Claude 通过前台控制器修改临时工作树、独立检查通过、原仓库不变、控制器退出0、Task保留REVIEW。证据和回执见 reviews/r0c。72小时运行与OS后台服务尚未验收。
 
-## 第五批：认证 API（进行中）
+## 第五批：认证 API（已验收）
 
-Cursor 已累计派发23路独立任务，以下2路尚未验收：
+Cursor 累计完成 **25路独立任务**；同一任务的review不重复计数。
 
 | 独立 Worktree | 任务 | 状态 |
 | --- | --- | --- |
-| workforce-cursor-api-auth-20261105 | 本地私有凭证、可信Owner、Bearer验证、Origin/Host边界 | Cursor Auto 已启动 |
-| workforce-cursor-task-command-receipts-20261105 | 原子命令回执、版本冲突、请求重放与Task状态同事务提交 | Cursor Auto 已启动 |
+| workforce-cursor-api-auth-20261105 | 私有凭证、Owner Bearer验证、Origin/Host边界 | 已返修、父 Agent集成验收 |
+| workforce-cursor-task-command-receipts-20261105 | 原子命令回执、版本冲突、请求重放 | 已返修、父 Agent抽取存储模块后集成验收 |
+| workforce-cursor-http-api-20261105 | Fastify认证查询/任务命令边界 | 已返修、父 Agent集成验收 |
+| workforce-cursor-api-cli-20261105 | api-init/api-serve与真实进程退出 | 已返修、父 Agent集成验收 |
 
-契约见 tasks/CURSOR_API_FOUNDATION.md。当前还没有可对外操作的 HTTP/Web，不把认证模块或查询层当作产品页面交付。完整范围继续按 PRODUCT_TRACEABILITY_REVIEW.md 与产品基线推进。
+完整633测试、类型/构建/smoke/依赖扫描通过；真实TCP验收见 reviews/r1/HTTP_API_PILOT.json。回执见 reviews/r1。Web下一批推进，不把API当作页面完成。

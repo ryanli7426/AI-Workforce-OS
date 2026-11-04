@@ -13,6 +13,7 @@ import { LAO_SCHEMA_VERSION, LocalStore } from '../storage/store.ts'
 import type { EmployeeCreateInput } from '../workforce/employees.ts'
 import { runTaskCommand } from './task-commands.ts'
 import { runControllerCommand } from './controller-commands.ts'
+import { runApiCommand } from './api-commands.ts'
 
 export interface CliIO {
   stdout: { write(value: string): unknown }
@@ -48,6 +49,8 @@ Commands:
   stop                   Request graceful controller stop (Runners remain independent)
   controller-status      Query controller ownership and process liveness
   logs ID                Read scoped execution logs (--tail-bytes N, --execution-id ID)
+  api-init               Create private local API credentials (prints path only)
+  api-serve              Run authenticated loopback HTTP API (--port N, --allow-origin URL)
 
 Options:
   --data-dir DIR         Data directory (default: .workforce in the current directory)
@@ -415,7 +418,7 @@ function isMainModule(): boolean {
 
 /** Async application entry; the legacy synchronous management dispatcher remains importable. */
 export async function runApplicationCli(argv: readonly string[], io: CliIO = process): Promise<number> {
-  return await runControllerCommand(argv, io) ?? await runTaskCommand(argv, io) ?? runCli(argv, io)
+  return await runApiCommand(argv, io) ?? await runControllerCommand(argv, io) ?? await runTaskCommand(argv, io) ?? runCli(argv, io)
 }
 
 if (isMainModule()) process.exitCode = await runApplicationCli(process.argv.slice(2))

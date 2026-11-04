@@ -1,6 +1,6 @@
 # 本地操作说明
 
-适用：当前独立仓库。前台控制器与 run-once 已交付；OS 后台服务、HTTP 和钉钉接入尚未交付。显式 `start --foreground` 或 `run-once` 调度已授权任务并可能启动 Agent；管理与查询命令不隐式启动 Agent。
+适用：当前独立仓库。前台控制器与 run-once 已交付；认证本地 HTTP API 已交付；OS 后台服务、Web 和真实钉钉接入尚未交付。显式 `start --foreground` 或 `run-once` 调度已授权任务并可能启动 Agent；管理与查询命令不隐式启动 Agent。
 
 ## 工程检查与显式初始化
 
@@ -70,7 +70,7 @@ node dist/cli/index.js backup --data-dir .workforce --backup-dir /absolute/path/
 
 ## 任务应用与执行边界
 
-LocalTaskService 提供经过规则与本地 Owner 校验的任务创建、审批、取消、重试、验证和验收；ExecutionService 管理持久执行与 Runner 对账。以下 CLI 已接入同一应用层；尚无联网 API。
+LocalTaskService 提供经过规则与本地 Owner 校验的任务创建、审批、取消、重试、验证和验收；ExecutionService 管理持久执行与 Runner 对账。以下 CLI 与认证本地 HTTP API 接入同一应用层。
 
 先显式配置 Claude 的真实绝对路径（不会探测凭证或启动模型）：
 
@@ -148,3 +148,21 @@ stop 返回 requestedtrue 表示私有认证停止请求已写入；等原前台
 controller-events.jsonl 是私有0600结构化事件文件，单文件上限16MiB、最多2份轮转。logs 只读当前 Owner 有权查看的 Ticket 执行，支持 --execution-id。查询不会初始化库、启动 Runtime 或读取控制 token。日志并发追加可读取；跨越尾部截断边界的不完整首行会被丢弃，防止泄露被切掉凭证前缀的后缀，Truncated 字段标记范围受限。
 
 Runner 当前可靠进程组管理只支持 POSIX。UNKNOWN 执行保留资源，不可删除锁或重启来盲目重跑。用户配置与 Runtime 的工具机制不构成完整 OS 安全沙箱。真实控制器/Claude 验证证据见 reviews/r0c/CLAUDE_CONTROLLER_PILOT.json，完整进度与限制见 R0A_PROGRESS.md。72小时连续运行尚未验收。
+
+## 本地认证 HTTP API
+
+```sh
+# 旧数据目录也必须显式 init，增加命令回执模块；查询/serve 不迁移数据库。
+node dist/cli/index.js init --data-dir .workforce
+# 已有 settings.json 可跳过 configure；不要覆盖已有配置。
+node dist/cli/index.js api-init --data-dir .workforce
+node dist/cli/index.js api-serve --data-dir .workforce --port 4310
+```
+
+`api-init` 在已初始化的私有目录独占创建 api-auth.json（0600），只输出路径与创建时间，重复初始化拒绝覆盖。API 使用该文件中的 Bearer 凭证；不得提交该文件或把 token 放到 URL、日志、Ticket 中。只监听127.0.0.1，所有 API 路由包括 health 都需认证。默认只允许当前端口的 localhost/127.0.0.1 Origin；`--allow-origin http://127.0.0.1:5173` 可显式指定单一本地前端来源。当前未提供跨域 CORS，前端开发应同源代理。
+
+API 前缀 `/api/v1`：GET health/me/overview/employees/projects/tasks/tasks/:id/executions/:id/tasks/:id/logs；POST tasks、tasks/:id/approve|reject|cancel|retry|review。任务列表支持状态、项目、员工和有界游标分页。详细请求契约见 tasks/CURSOR_HTTP_API.md 和实际 JSON schema。
+
+所有写请求需 `Idempotency-Key`；非创建操作还需当前 `expectedVersion`。相同键及请求重放返回原提交结果，键冲突或版本冲突返回409。请求人由服务端 Owner 确定。命令回执与状态变更同一事务提交；API 不启动 Agent 或控制器。验证仍使用 task-verify CLI；不能通过写入 passed 字段绕过验证。SIGINT/SIGTERM 仅关闭 API，保留独立控制器与 Runner。
+
+真实编译后 TCP 验收通过，证据见 reviews/r1/HTTP_API_PILOT.json。当前无 Web 页面、SSE、异步验证 API、员工/项目写 API、多用户身份或真实钉钉闭环。

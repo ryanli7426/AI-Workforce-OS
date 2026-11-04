@@ -2,7 +2,7 @@
 
 > 本文区分新仓库实际依赖、历史迁移背景和后续选型。当前交付范围以 [交付跟踪](DELIVERY_TRACKER.md)、[执行底座进度](R0A_PROGRESS.md) 和 [本地操作说明](LOCAL_OPERATIONS.md) 为准。
 
-日期：2026-11-04。状态：选型提案；新增组件尚未安装，不表示当前实现。配套：[架构设计与实施蓝图](AI_WORKFORCE_OS_ARCHITECTURE.md)。
+日期：2026-11-05。状态：已实施组件与后续选型分开记录。配套：[架构设计与实施蓝图](AI_WORKFORCE_OS_ARCHITECTURE.md)。
 
 ## 1. 判断
 
@@ -12,7 +12,7 @@
 
 ## 2. 新仓库实际技术与历史处理意见
 
-新仓库已使用 TypeScript 6、Node.js 22/24 engines、pnpm 11、Vitest 4、`tsc` 和内置 `node:sqlite`。已在本机 Node 22.23.1 通过类型、单元/进程集成、编译后 CLI、独立 smoke 与依赖扫描。当前 package.json **没有运行时 npm 依赖**：Zod、proper-lockfile、React、Fastify、Pino 等尚未安装；下表这些项目描述的是旧仓库的迁移背景，不能视为新项目已提供的能力。路径与进程控制当前按 POSIX 验收，Windows 运行执行链路尚不支持。
+新仓库已使用 TypeScript 6、Node.js 22/24 engines、pnpm 11、Vitest 4、`tsc` 和内置 `node:sqlite`。已在本机 Node 22.23.1 通过类型、单元/进程集成、编译后 CLI、独立 smoke 与依赖扫描。当前运行时 npm 依赖为 **Fastify 5.12.8**（认证本地 HTTP API）；Core/SQLite 的无 node_modules smoke 仍通过。Zod、proper-lockfile、React、Pino 等尚未安装；下表这些项目描述的是旧仓库的迁移背景，不能视为新项目已提供的能力。路径与进程控制当前按 POSIX 验收，Windows 运行执行链路尚不支持。
 
 以下是历史组件的处理建议：
 

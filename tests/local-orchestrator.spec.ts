@@ -33,7 +33,11 @@ const WORKER_PATH = resolve(SPEC_DIR, '../dist/runner/worker.js')
 const cleanups: Array<() => Promise<void>> = []
 
 afterEach(async () => {
-  for (const cleanup of cleanups.splice(0)) await cleanup()
+  const failures: unknown[] = []
+  for (const cleanup of cleanups.splice(0)) {
+    try { await cleanup() } catch (error) { failures.push(error) }
+  }
+  if (failures.length) throw new AggregateError(failures, 'Fixture cleanup could not confirm shutdown')
 })
 
 function delay(ms: number): Promise<void> {
@@ -120,7 +124,6 @@ function harness(): Harness {
       if ((TERMINAL_EXECUTION_STATES as readonly string[]).includes(execution.state)) continue
       try {
         const runnerRoot = join(root, 'runners')
-        const { RunnerClient } = await import('../src/runner/client.ts')
         const client = new RunnerClient({
           root: runnerRoot,
           workerPath: WORKER_PATH,
@@ -128,17 +131,49 @@ function harness(): Harness {
         const snapshot = await client.status(execution.executionId)
         if (!(TERMINAL_EXECUTION_STATES as readonly string[]).includes(snapshot.state)) {
           await client.stop(execution.executionId, 'test cleanup')
-          if (snapshot.processId) {
-            try { process.kill(-snapshot.processId, 'SIGKILL') } catch { /* ignore */ }
+          const deadline = Date.now() + 6_000
+          while (Date.now() < deadline) {
+            const current = await client.status(execution.executionId)
+            if (TERMINAL_EXECUTION_STATES.includes(current.state)) break
+            if (current.state === 'UNKNOWN') {
+              // The UNKNOWN test intentionally kills its worker. Only terminate
+              // a fresh fixture whose current command still proves our identity.
+              if (current.processId) {
+                let command = ''
+                try {
+                  command = execFileSync('ps', ['-ww', '-p', String(current.processId), '-o', 'command='], {
+                    encoding: 'utf8', timeout: 2_000,
+                  })
+                } catch { /* process already gone */ }
+                if (command.includes(FIXTURE) && command.includes(execution.executionId) && command.includes(root)) {
+                  try { process.kill(-current.processId, 'SIGKILL') } catch { /* fixture already gone */ }
+                }
+              }
+              break
+            }
+            await delay(25)
+          }
+          const stopped = await client.status(execution.executionId)
+          if (!TERMINAL_EXECUTION_STATES.includes(stopped.state) && stopped.state !== 'UNKNOWN')
+            throw new Error('Owned Runner did not confirm termination')
+          if (stopped.state === 'UNKNOWN') {
+            // Preserve uncertainty, but the deliberately killed test owner must
+            // be gone before deleting files it could still be writing.
+            try { process.kill(stopped.runnerPid, 0); throw new Error('Unknown fixture Runner is still alive') }
+            catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+            }
           }
         }
-      } catch { /* ignore */ }
+      } catch (error) {
+        throw new Error('Cannot safely remove active execution fixture', { cause: error })
+      }
     }
   }
 
   cleanups.push(async () => {
-    try { await stopActive(store) } catch { /* ignore */ }
-    try { store.close() } catch { /* ignore */ }
+    await stopActive(store)
+    store.close()
     rmSync(root, { recursive: true, force: true })
   })
 

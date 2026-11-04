@@ -1,0 +1,23 @@
+{
+  "verifiedAt": "2026-11-04T22:47:07.840Z",
+  "transport": "actual compiled api-serve TCP on loopback ephemeral port",
+  "unauthenticated": 401,
+  "authenticatedHealth": 200,
+  "rejectedOrigin": 403,
+  "created": 201,
+  "identicalReplay": true,
+  "conflictingKey": "IDEMPOTENCY_CONFLICT",
+  "staleVersion": "VERSION_CONFLICT",
+  "newPilotState": "CANCELLED",
+  "originalRealClaudeTaskState": "REVIEW",
+  "originalVerification": "passed",
+  "executionsUnchanged": true,
+  "tokenAbsentFromOutput": true,
+  "serverExitCode": 0,
+  "limits": [
+    "no Web UI tested",
+    "no DingTalk business target",
+    "no new Runtime execution",
+    "human final review not performed"
+  ]
+}

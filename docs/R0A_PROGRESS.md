@@ -55,3 +55,11 @@
 - 最新 `pnpm check`：**38文件、577测试通过，无跳过**；包含前台控制进程正常退出/被杀后的原Runner保留、无重复执行、锁恢复、单实例与版本化Owner查询。类型、构建、独立smoke和依赖扫描通过。
 - 真实本地Claude 2.1.181 经 `start --foreground` 从已审批Task执行一次临时项目修改，字节检查与独立验证均通过，控制器退出0，Task保留REVIEW而未自动DONE。脱敏证据见 reviews/r0c/CLAUDE_CONTROLLER_PILOT.json。
 - 当前仍没有OS后台服务、72小时持续运行证据、HTTP/Web产品或真实钉钉业务回写；API鉴权与持久请求回执正在实施。全量产品缺口见 reviews/PRODUCT_TRACEABILITY_REVIEW.md。
+
+## 2026-11-05：认证 API 集成与真实 TCP 验收
+
+- Cursor Auto 四路交付本地认证、持久 Task 命令、Fastify HTTP 和 API CLI；父 Agent review/修复并集成。Cursor 累计完成25路独立任务，返修不重复计数。
+- 父 Agent 纠正：命令回执的存储依赖循环、旧模块查询误需新 schema、未来 schema 原子预检、凭证短写/文件身份、无效请求与数据库故障的错误分类、未知查询参数与重复关键头、API优雅退出的挂起连接。
+- 完整 `pnpm check`：42文件、633测试通过，无跳过；类型、构建、独立Core/SQLite与编译后CLI smoke、依赖扫描全部通过。随后进程测试清理命令增加完整参数匹配，15项目标测试再次通过。
+- 真实编译后 api-serve TCP：401未认证、200健康、403非法Origin；创建201、相同请求重放、幂等冲突409、版本冲突409、批准/取消均通过，API退出0且输出不含token。原真实Claude任务保持REVIEW和验证passed，没有增加Execution。证据见 reviews/r1/HTTP_API_PILOT.json。
+- API是产品入口的一部分；Web、异步验证API、员工/项目写API、SSE和真实钉钉业务尚未交付，完整产品目标继续推进。
