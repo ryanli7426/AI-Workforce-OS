@@ -1,6 +1,6 @@
 # 本地操作说明
 
-适用：当前独立仓库。生产调度 daemon、HTTP 和钉钉接入尚未交付；只有显式 `run-once` 会调度已授权任务并可能启动 Agent，管理与查询命令不隐式启动 Agent。
+适用：当前独立仓库。前台控制器与 run-once 已交付；OS 后台服务、HTTP 和钉钉接入尚未交付。显式 `start --foreground` 或 `run-once` 调度已授权任务并可能启动 Agent；管理与查询命令不隐式启动 Agent。
 
 ## 工程检查与显式初始化
 
@@ -121,8 +121,30 @@ node dist/cli/index.js run-once --data-dir .workforce
 node dist/cli/index.js task-retry TICKET_ID --data-dir .workforce --reason "Retry after confirmed failure"
 ```
 
-取消活动任务产生持久 stop 意图，需下一次 run-once 派发并确认退出；取消请求本身不释放占用。重试仅限允许状态、确认旧进程已停止且未超限的任务，当前不自动重试。原始脱敏 stdout/stderr 与协议证据位于数据目录 runners/EXECUTION_ID，产物位于 artifacts，独立验证报告位于 verifications。私有目录中的 request.json 含控制 token，不应发布。
+取消活动任务产生持久 stop 意图，由活动控制器或下一次 run-once 派发并确认退出；取消请求本身不释放占用。重试仅限允许状态、确认旧进程已停止且未超限的任务，当前不自动重试。原始脱敏 stdout/stderr 与协议证据位于数据目录 runners/EXECUTION_ID，产物位于 artifacts，独立验证报告位于 verifications。私有目录中的 request.json 含控制 token，不应发布。
 
 Runtime 凭证只从应用环境白名单在内存传入，不写入 settings、Ticket 或 Runner request。CLI 仍可能使用其用户认证配置。默认没有 Bash、Push、合并或发布工具授权。cwd、提示词与工具清单是约束手段，不能宣称强 OS 文件系统隔离。
 
-Runner 当前可靠进程组管理只支持 POSIX。UNKNOWN 执行保留资源，不可删除锁或重启来盲目重跑。用户配置与 Runtime 的工具机制不构成完整 OS 安全沙箱。真实验证证据与明确限制见 R0A_PROGRESS.md。
+## 持续运行、停止与日志
+
+```sh
+node dist/cli/index.js start --foreground --data-dir .workforce
+```
+
+此命令占用当前终端，先对账再按 settings.scheduler.pollIntervalMs 连续调度。第二个控制器会因单实例锁被拒绝。它没有安装 launchd/systemd，也没有伪装成脱离终端的 daemon。
+
+在另一终端执行：
+
+```sh
+node dist/cli/index.js controller-status --data-dir .workforce
+node dist/cli/index.js logs TICKET_ID --data-dir .workforce --tail-bytes 65536
+node dist/cli/index.js stop --data-dir .workforce
+```
+
+stop 返回 requestedtrue 表示私有认证停止请求已写入；等原前台命令退出、controller-status 返回 stopped 才确认控制器停止。SIGINT/SIGTERM 同样优雅结束控制循环。**控制器停止保留独立运行的 Task Runner**；停止任务应先 task-cancel，再由活动控制器或 run-once 处理 stop 意图并确认退出。
+
+控制器异常死亡后，只对确认死亡的 Owner 恢复控制锁，并观察原 Runner；已存在 Task/Execution 不会因此重新启动。锁元数据损坏、恢复中断或归属变化会失败关闭，不自动删除未知证据。controller-status 只报告控制进程归属/存活情况，不代表 Claude、来源或任务质量健康。
+
+controller-events.jsonl 是私有0600结构化事件文件，单文件上限16MiB、最多2份轮转。logs 只读当前 Owner 有权查看的 Ticket 执行，支持 --execution-id。查询不会初始化库、启动 Runtime 或读取控制 token。日志并发追加可读取；跨越尾部截断边界的不完整首行会被丢弃，防止泄露被切掉凭证前缀的后缀，Truncated 字段标记范围受限。
+
+Runner 当前可靠进程组管理只支持 POSIX。UNKNOWN 执行保留资源，不可删除锁或重启来盲目重跑。用户配置与 Runtime 的工具机制不构成完整 OS 安全沙箱。真实控制器/Claude 验证证据见 reviews/r0c/CLAUDE_CONTROLLER_PILOT.json，完整进度与限制见 R0A_PROGRESS.md。72小时连续运行尚未验收。

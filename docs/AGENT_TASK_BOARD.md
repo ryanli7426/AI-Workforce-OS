@@ -61,8 +61,24 @@
 
 | 独立 Worktree | 任务 | 状态 |
 | --- | --- | --- |
-| workforce-cursor-control-loop-20261105 | 串行长期控制循环、退出与错误退避、结构化事件 | Cursor Auto 实施中 |
-| workforce-cursor-controller-lease-20261105 | 单控制平面占用、私有 stop 通道、死进程恢复与替换 fencing | Cursor Auto 实施中 |
-| workforce-cursor-execution-logs-20261105 | 只读执行日志、范围授权、脱敏与有界尾部读取 | Cursor Auto 实施中 |
+| workforce-cursor-control-loop-20261105 | 串行长期控制循环、退出与错误退避、结构化事件 | 已交付、父 Agent review并集成 |
+| workforce-cursor-controller-lease-20261105 | 单控制平面占用、私有 stop 通道、死进程恢复与替换 fencing | 已返修、集成；父 Agent 另补未知证据与悬空链接释放保护 |
+| workforce-cursor-execution-logs-20261105 | 只读执行日志、范围授权、脱敏与有界尾部读取 | 已返修、集成；移除生产测试钩子，支持追加并保护截断首行 |
+| workforce-cursor-controller-cli-20261105 | start/stop/controller-status/logs命令 | 已返修、集成；真实编译后前台控制进程测试通过 |
 
-共享契约见 tasks/CURSOR_OPERATIONS.md；每路只拥有一个实现文件及其测试，父 Agent 负责 CLI 接线与组合验收。已验收实现提交 b956cf6 已推送 origin/main；本批尚未验收，不宣称后台服务已可用。
+共享契约见 tasks/CURSOR_OPERATIONS.md 和 CURSOR_CONTROLLER_CLI.md；每路只拥有一个实现文件及其测试，父 Agent 负责 CLI 接线与组合验收。以上4路使 Cursor 累计完成21路。
+
+本批另有 Claude Code 的独立编译后控制进程验收、pi 的全量 PRD/UX 静态缺口审查，以及明确使用 gpt-5.6-sol 的 Codex 产品查询实现。父 Agent 修正了查询层误将 Project 业务负责人当作 Workspace 权限边界的问题。
+
+组合门禁：38文件、577测试通过，无跳过，类型检查/构建/smoke/依赖扫描通过。真实本地 Claude 通过前台控制器修改临时工作树、独立检查通过、原仓库不变、控制器退出0、Task保留REVIEW。证据和回执见 reviews/r0c。72小时运行与OS后台服务尚未验收。
+
+## 第五批：认证 API（进行中）
+
+Cursor 已累计派发23路独立任务，以下2路尚未验收：
+
+| 独立 Worktree | 任务 | 状态 |
+| --- | --- | --- |
+| workforce-cursor-api-auth-20261105 | 本地私有凭证、可信Owner、Bearer验证、Origin/Host边界 | Cursor Auto 已启动 |
+| workforce-cursor-task-command-receipts-20261105 | 原子命令回执、版本冲突、请求重放与Task状态同事务提交 | Cursor Auto 已启动 |
+
+契约见 tasks/CURSOR_API_FOUNDATION.md。当前还没有可对外操作的 HTTP/Web，不把认证模块或查询层当作产品页面交付。完整范围继续按 PRODUCT_TRACEABILITY_REVIEW.md 与产品基线推进。

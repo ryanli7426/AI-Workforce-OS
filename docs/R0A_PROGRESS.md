@@ -47,3 +47,11 @@
 - 父 Agent 另修复：异步操作前数据库被关闭、JSON 字段被错误强制转字符串、HOME 下项目被误拒、Runner 路径依赖 caller cwd、取消先于 Core 观察 RUNNING 导致无法收敛、已存在 UNKNOWN 执行的 launch 重放误确认停止、执行结束前快照被误当最终产物。新增异常回归均随完整门禁通过。
 - 以上是 Task CLI 与执行闭环验收，未代表后台长期运行、真实钉钉或完整产品已交付。操作说明见 LOCAL_OPERATIONS.md。
 - 钉钉 Issue 实际字段与回写位置仍需真实契约；其准备不阻塞上述独立工程。
+
+## 2026-11-05：前台控制器与产品查询集成
+
+- Cursor Auto交付控制循环、控制锁、日志与CLI；Claude Code独立编写真实编译后控制进程验收；pi审查完整PRD/UX缺口；Codex明确使用gpt-5.6-sol实现Owner作用域产品查询。
+- 父 Agent纠正：锁丢失后继续调度、旧stop阻塞再次启动、未知/悬空文件被误当成功释放、退出错误被吞、路径chmod竞争、尾部日志截断绕过脱敏、只读查询被误当实时对账、产品查询误用Project负责人做授权。
+- 最新 `pnpm check`：**38文件、577测试通过，无跳过**；包含前台控制进程正常退出/被杀后的原Runner保留、无重复执行、锁恢复、单实例与版本化Owner查询。类型、构建、独立smoke和依赖扫描通过。
+- 真实本地Claude 2.1.181 经 `start --foreground` 从已审批Task执行一次临时项目修改，字节检查与独立验证均通过，控制器退出0，Task保留REVIEW而未自动DONE。脱敏证据见 reviews/r0c/CLAUDE_CONTROLLER_PILOT.json。
+- 当前仍没有OS后台服务、72小时持续运行证据、HTTP/Web产品或真实钉钉业务回写；API鉴权与持久请求回执正在实施。全量产品缺口见 reviews/PRODUCT_TRACEABILITY_REVIEW.md。

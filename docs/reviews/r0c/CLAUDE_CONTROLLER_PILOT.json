@@ -1,0 +1,23 @@
+{
+  "verifiedAt": "2026-11-04T22:17:51.576Z",
+  "runtime": "actual local Claude Code 2.1.181",
+  "controller": "actual compiled start --foreground",
+  "executionState": "SUCCEEDED",
+  "exitCode": 0,
+  "oneExecution": true,
+  "fileChangedExactly": true,
+  "sourceUnchanged": true,
+  "verificationState": "passed",
+  "artifactRevision": "10acd104f5e1037ea85745f58806abe57560c9bbf88bd98318d39d0ad327ce7e",
+  "finalTaskState": "REVIEW",
+  "controllerStoppedCleanly": true,
+  "controllerState": "stopped",
+  "automaticDone": false,
+  "humanFinalReview": "not performed; Task intentionally remains REVIEW",
+  "limits": [
+    "isolated temporary Git project",
+    "final human review intentionally pending",
+    "not a 72-hour soak",
+    "no DingTalk business target used"
+  ]
+}

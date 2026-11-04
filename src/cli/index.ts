@@ -12,6 +12,7 @@ import { applicationRepositories, initializeApplicationSchema } from '../storage
 import { LAO_SCHEMA_VERSION, LocalStore } from '../storage/store.ts'
 import type { EmployeeCreateInput } from '../workforce/employees.ts'
 import { runTaskCommand } from './task-commands.ts'
+import { runControllerCommand } from './controller-commands.ts'
 
 export interface CliIO {
   stdout: { write(value: string): unknown }
@@ -43,6 +44,10 @@ Commands:
   task-verify ID         Run --checks-file JSONFILE or --waive (--reason TEXT)
   task-review ID         Review exact --execution-id and --artifact-revision
                          (--decision approved|rejected --reason TEXT)
+  start --foreground     Run the local controller in this terminal
+  stop                   Request graceful controller stop (Runners remain independent)
+  controller-status      Query controller ownership and process liveness
+  logs ID                Read scoped execution logs (--tail-bytes N, --execution-id ID)
 
 Options:
   --data-dir DIR         Data directory (default: .workforce in the current directory)
@@ -410,7 +415,7 @@ function isMainModule(): boolean {
 
 /** Async application entry; the legacy synchronous management dispatcher remains importable. */
 export async function runApplicationCli(argv: readonly string[], io: CliIO = process): Promise<number> {
-  return await runTaskCommand(argv, io) ?? runCli(argv, io)
+  return await runControllerCommand(argv, io) ?? await runTaskCommand(argv, io) ?? runCli(argv, io)
 }
 
 if (isMainModule()) process.exitCode = await runApplicationCli(process.argv.slice(2))

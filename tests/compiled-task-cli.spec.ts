@@ -30,7 +30,6 @@ const CLI_TIMEOUT_MS = 20_000
 const HAPPY_PATH_TIMEOUT_MS = 60_000
 const POLL_TIMEOUT_MS = 20_000
 const STOP_AWAIT_MS = 8_000
-const DETACH_WAIT_MS = 1_600
 const MARKER_BODY = 'original-untouched\n'
 const MARKER_FILE = 'SMOKE_MARKER.txt'
 
@@ -72,8 +71,11 @@ if (mode === 'success') {
   applyTypoFix()
   process.stdout.write(\`\${successResult('Updated local files for the authorized task.')}\\n\`)
 } else if (mode === 'wait-success') {
-  const duration = Number.parseInt(/FIXTURE_WAIT_MS=(\\d+)/i.exec(prompt)?.[1] ?? '1600', 10)
-  await delay(Number.isFinite(duration) ? duration : 1_600)
+  // Explicit handshake makes detach proof independent of machine speed.
+  const release = join(cwd, '.fixture-release')
+  const deadline = Date.now() + 25_000
+  while (!existsSync(release) && Date.now() < deadline) await delay(20)
+  if (!existsSync(release)) throw new Error('Fixture release deadline exceeded')
   applyTypoFix()
   process.stdout.write(\`\${successResult('Updated local files after wait-success.')}\\n\`)
 } else if (mode === 'wait') {
@@ -558,7 +560,7 @@ describe('compiled Task CLI smoke', () => {
       project: 'proj-smoke',
       issue: 'issue-smoke-1',
       title: 'Fix README typo',
-      description: `Correct README typoo. FIXTURE_MODE=wait-success FIXTURE_WAIT_MS=${DETACH_WAIT_MS}`,
+      description: 'Correct README typoo. FIXTURE_MODE=wait-success',
       taskType: 'documentation',
     })
     const created = await runCli(['task-create', '--data-dir', dataDir, '--file', taskFile])
@@ -583,10 +585,14 @@ describe('compiled Task CLI smoke', () => {
       })
       expect((firstTick.json as { assigned: number }).assigned).toBeGreaterThanOrEqual(1)
 
-      // CLI already returned; bounded poll until RUNNING once (detach proof while wait-success lives).
-      const runningDeadline = Date.now() + Math.min(POLL_TIMEOUT_MS, DETACH_WAIT_MS + 500)
+      // Readonly queries report persisted facts. Explicit ticks reconcile the
+      // Runner while it waits for this test's release file, after CLI exit.
+      const runningDeadline = Date.now() + POLL_TIMEOUT_MS
       let runningRow: ExecutionRow | undefined
       while (Date.now() < runningDeadline) {
+        const observation = await runCli(['run-once', '--data-dir', dataDir])
+        expect(observation.code).toBe(0)
+        expect((observation.json as { assigned: number }).assigned).toBe(0)
         const listed = await runCli(['executions', '--data-dir', dataDir])
         expect(listed.code).toBe(0)
         expect(Array.isArray(listed.json)).toBe(true)
@@ -618,6 +624,8 @@ describe('compiled Task CLI smoke', () => {
       ])
       expect((secondExecutions.json as unknown[]).length).toBe(1)
       rememberOwned(dataDir, (secondExecutions.json as ExecutionRow[])[0])
+      const liveCwd = (secondExecutions.json as ExecutionRow[])[0]!.cwd!
+      writeFileSync(join(liveCwd, '.fixture-release'), 'continue\n', { mode: 0o600 })
 
       const deadline = Date.now() + POLL_TIMEOUT_MS
       let reviewStatus: string | undefined
