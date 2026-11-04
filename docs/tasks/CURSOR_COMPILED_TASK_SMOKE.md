@@ -1,0 +1,9 @@
+# Cursor Auto: compiled Task CLI integration
+
+Own ONLY `tests/compiled-task-cli.spec.ts`. Work directly in your own worktree. No installs, commits, pushes, nested agents, production model calls or edits to dependencies. Parent supplies reviewed dependencies once ready. Read AGENTS.md, CURSOR_TASK_CLI.md and current project/employee input contracts.
+
+Test the compiled `dist/cli/index.js` through real child processes with explicit timeouts, a dedicated private temp data dir, temp Git repository, and executable mock Claude CLI. Tests must invoke from an unrelated cwd so CLI/worker path bugs are caught. Use absolute Node/CLI/fixture paths. No global config, credential printing or production repository mutation. Keep fixtures inside this test's temp root and clean up only owned children/files.
+
+Cover init → configure → project-create → employee-create/enable → task-create → explicit approval → repeated run-once → REVIEW → actual independent local content check via task-verify → explicit artifact/version-bound task-review → DONE. Verify original repository unchanged, isolated worktree changed, no automatic DONE before verification/review. Run-once should exit while worker remains observable; executions must retain one execution across repeated CLI starts. Task input fields are project/issue/title/description/taskType. Capture JSON stdout, allow SQLite warning on stderr. Real model calls forbidden.
+
+Also cover readonly commands on missing storage leave no DB behind, invalid Task JSON types are rejected instead of coercion, configure is exclusive, and premature review cannot complete a task. Do not trust summaries of other agents. Build/tests if dependencies exist; otherwise report exact pending dependencies, never invent replacements. Parent routes async Task commands in main CLI; currently pending, do not edit index.ts.

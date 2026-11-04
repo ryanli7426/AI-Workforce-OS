@@ -61,7 +61,7 @@ export class RunnerClient {
     validateLaunchSpec(spec)
     const cwd = lstatSync(spec.cwd)
     if (!cwd.isDirectory() || cwd.isSymbolicLink()) throw new Error('Launch cwd must be a real directory')
-    this.#ensurePrivateRoot()
+    this.#ensurePrivateRoot(true)
     const dir = this.#executionDir(spec.executionId)
     try {
       mkdirSync(dir, { mode: PRIVATE_DIR_MODE })
@@ -171,8 +171,9 @@ export class RunnerClient {
     return join(this.#root, executionId)
   }
 
-  #ensurePrivateRoot(): void {
+  #ensurePrivateRoot(create = false): void {
     if (!existsSync(this.#root)) {
+      if (!create) throw unknownError('Runner root missing; queries do not initialize it')
       mkdirSync(this.#root, { recursive: true, mode: PRIVATE_DIR_MODE })
       chmodSync(this.#root, PRIVATE_DIR_MODE)
       this.#assertRealDir(this.#root)
@@ -328,7 +329,8 @@ function isTerminal(state: ExecutionState): boolean {
 function isFresh(snapshot: RunnerSnapshot, staleAfterMs: number): boolean {
   const at = Date.parse(snapshot.heartbeatAt)
   if (!Number.isFinite(at)) return false
-  return Date.now() - at <= staleAfterMs
+  const age = Date.now() - at
+  return age >= -1000 && age <= staleAfterMs
 }
 
 function runnerProcessAlive(pid: number): boolean {
@@ -377,6 +379,13 @@ function validateSnapshot(value: unknown, request: RunnerRequest): RunnerSnapsho
   }
   if (typeof s.stderrBytes !== 'number' || !Number.isSafeInteger(s.stderrBytes) || s.stderrBytes < 0) {
     throw unknownError('Invalid state stderrBytes')
+  }
+  if (isTerminal(s.state as ExecutionState)) {
+    if (!s.finishedAt) throw unknownError('Terminal state lacks a completion timestamp')
+    if (s.state === 'SUCCEEDED' && (s.exitCode !== 0 || !!s.signal)) throw unknownError('Success lacks clean exit proof')
+    const startupFailure = s.state === 'FAILED' && s.processId === undefined && typeof s.reason === 'string' && !!s.reason.trim()
+    if (s.state !== 'SUCCEEDED' && !startupFailure && !Number.isSafeInteger(s.exitCode) && !s.signal)
+      throw unknownError('Terminal state lacks exit proof')
   }
   return s as RunnerSnapshot
 }

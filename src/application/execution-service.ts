@@ -30,6 +30,8 @@ export class ExecutionService {
   }
 
   async start(spec: ExecutionSpec, launch: LaunchSpec): Promise<ExecutionRecord> {
+    // Freeze the request before the authorization await; callers cannot mutate an approved launch.
+    spec = structuredClone(spec); launch = structuredClone(launch)
     validateLaunchSpec(launch)
     for (const key of ['executionId', 'assignmentId', 'ticketId', 'generation', 'cwd'] as const)
       if (spec[key] !== launch[key]) throw new Error(`Launch identity differs from reservation: ${key}`)

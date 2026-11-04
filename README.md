@@ -1,6 +1,6 @@
 # AI Workforce OS
 
-本地优先、由人治理的 AI 员工组织与工作管理平台。当前交付独立 Core、SQLite、领域测试与基础管理 CLI，尚未提供运行调度服务、真实 Agent 执行、钉钉接入或 Web。
+本地优先、由人治理的 AI 员工组织与工作管理平台。当前提供独立 Core/SQLite、持久 Runner、员工/项目配置、任务创建/审批/隔离执行/验证/验收 CLI。本地 Claude 已完成工作树修改与产物验证；长期调度服务、钉钉接入与 Web 仍在实施。
 
 ## 开发
 
@@ -16,7 +16,7 @@ node dist/cli/index.js tickets --data-dir .workforce
 node dist/cli/index.js doctor
 ```
 
-`init` 是显式数据库初始化；查询命令不创建数据库。执行 Runtime 与钉钉暂未连接，CLI 不会启动 Agent 或发送远端消息。
+`init` 是显式数据库初始化；查询命令不创建数据库。显式 `run-once` 调度已授权任务并可能启动 Agent；管理命令不启动 Agent。编译后 CLI 完整流程测试和独立检查已通过，真实 Claude 证据分别记录。配置、Task、员工、项目和备份命令见 [本地操作说明](docs/LOCAL_OPERATIONS.md)。
 
 ## 产品与架构
 

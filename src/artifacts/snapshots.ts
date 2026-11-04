@@ -7,14 +7,24 @@ import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } fr
 
 const DEFAULT_MAX_BYTES = 256 * 1024 * 1024
 const DEFAULT_MAX_FILES = 10_000
+const GIT_EXECUTABLE = '/usr/bin/git'
 const GIT_MAX_BUFFER = 64 * 1024 * 1024
 const GIT_TIMEOUT_MS = 30_000
+const GIT_FILE_MAX_BYTES = 16 * 1024
 const MANIFEST_FILE = 'manifest.json'
 const FILES_DIRECTORY = 'files'
 const EXECUTION_MARKERS = new Set(['.workforce-execution', '.workforce-execution.json'])
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
 const SHA256 = /^[a-f0-9]{64}$/
 const GIT_OBJECT_ID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/
+const GIT_ENV: NodeJS.ProcessEnv = {
+  PATH: '/usr/bin:/bin',
+  LANG: 'C',
+  LC_ALL: 'C',
+  GIT_CONFIG_NOSYSTEM: '1',
+  GIT_CONFIG_GLOBAL: '/dev/null',
+  GIT_TERMINAL_PROMPT: '0',
+}
 
 export interface ArtifactFile {
   path: string
@@ -137,24 +147,164 @@ function rejectGitlinks(output: Buffer): void {
 
 function git(cwd: string, args: readonly string[]): Promise<Buffer> {
   return new Promise((resolvePromise, reject) => {
-    execFile('git', ['-C', cwd, ...args], {
+    execFile(GIT_EXECUTABLE, [...args], {
+      cwd,
+      env: GIT_ENV,
       encoding: null,
       maxBuffer: GIT_MAX_BUFFER,
       timeout: GIT_TIMEOUT_MS,
+      killSignal: 'SIGKILL',
       windowsHide: true,
-    }, (error, stdout, stderr) => {
+    }, (error, stdout) => {
       if (!error) { resolvePromise(stdout); return }
-      const detail = stderr.toString('utf8').trim()
-      reject(new Error(detail ? `Git command failed: ${detail}` : 'Git command failed'))
+      // Never surface raw Git stderr; it can contain path or credential material.
+      reject(new Error('Git command failed'))
     })
   })
 }
 
 async function gitText(cwd: string, args: readonly string[]): Promise<string> {
   const output = await git(cwd, args)
-  const text = output.toString('utf8').trim()
-  if (!text || !Buffer.from(output.toString('utf8')).equals(output)) fail('Git returned invalid text output')
+  const text = output.toString('utf8').replace(/[\r\n]+$/, '')
+  if (!text || text.includes('\n') || text.includes('\r') || text.includes('\0') || !Buffer.from(text).equals(output.subarray(0, text.length))) {
+    fail('Git returned invalid text output')
+  }
   return text
+}
+
+async function readBoundedRegularFile(path: string, maxBytes: number, label: string): Promise<Buffer> {
+  await rejectSymlinkComponents(path, false)
+  const before = await lstat(path, { bigint: true })
+  if (before.isSymbolicLink() || !before.isFile() || before.size > BigInt(maxBytes)) {
+    fail(`${label} must be a bounded regular file`)
+  }
+  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+  try {
+    const opened = await handle.stat({ bigint: true })
+    if (!opened.isFile() || !sameFile(before, opened)) fail(`${label} changed while it was opened`)
+    const contents = await handle.readFile()
+    if (contents.length > maxBytes) fail(`${label} exceeds its size bound`)
+    const after = await handle.stat({ bigint: true })
+    if (!sameFile(opened, after)) fail(`${label} changed while it was read`)
+    return contents
+  } finally { await handle.close() }
+}
+
+function parseGitdirPointer(contents: Buffer, label: string): string {
+  const text = contents.toString('utf8')
+  if (!Buffer.from(text).equals(contents)) fail(`${label} is not valid UTF-8`)
+  const match = /^gitdir:\s*(.+?)\s*$/u.exec(text.replace(/\r\n/g, '\n').replace(/\n$/, ''))
+  if (!match?.[1] || match[1].includes('\0') || match[1].includes('\n') || match[1].includes('\r')) {
+    fail(`${label} is not a valid gitdir pointer`)
+  }
+  return match[1]
+}
+
+interface ListedWorktree {
+  path: string
+  head?: string
+}
+
+function parseWorktreeList(output: Buffer): ListedWorktree[] {
+  const text = output.toString('utf8')
+  if (!Buffer.from(text).equals(output)) fail('Git returned a non-UTF-8 worktree list')
+  const records: ListedWorktree[] = []
+  let current: ListedWorktree | undefined
+  for (const field of text.split(/[\0\n]/)) {
+    if (!field) {
+      if (current) records.push(current)
+      current = undefined
+      continue
+    }
+    const separator = field.indexOf(' ')
+    const key = separator < 0 ? field : field.slice(0, separator)
+    const value = separator < 0 ? '' : field.slice(separator + 1)
+    if (key === 'worktree') {
+      if (current) records.push(current)
+      current = { path: value }
+    } else if (current && key === 'HEAD') {
+      current.head = value
+    }
+  }
+  if (current) records.push(current)
+  return records
+}
+
+async function resolveGitPath(cwd: string, args: readonly string[], label: string): Promise<string> {
+  const output = await gitText(cwd, args)
+  const absolute = isAbsolute(output) ? resolve(output) : resolve(cwd, output)
+  await rejectSymlinkComponents(absolute, false)
+  const info = await lstat(absolute)
+  if (info.isSymbolicLink()) fail(`${label} cannot be a symbolic link`)
+  if (!info.isDirectory()) fail(`${label} must be a directory`)
+  return realpath(absolute)
+}
+
+async function assertPrivateDirectory(path: string, label: string): Promise<void> {
+  const info = await lstat(path)
+  if (info.isSymbolicLink()) fail(`${label} cannot be a symbolic link`)
+  if (!info.isDirectory()) fail(`${label} must be a directory`)
+  if (process.platform !== 'win32' && (info.mode & 0o077) !== 0) {
+    fail(`${label} must be a private directory (0700); choose a dedicated path instead of chmod on shared data`)
+  }
+}
+
+async function assertLinkedWorktree(cwd: string, gitFilePath: string, headRevision: string): Promise<void> {
+  const pointer = parseGitdirPointer(await readBoundedRegularFile(gitFilePath, GIT_FILE_MAX_BYTES, 'Git metadata link'), 'Git metadata link')
+  if (!isAbsolute(pointer)) fail('Linked worktree gitdir pointer must be absolute')
+  await rejectSymlinkComponents(pointer, false)
+  const pointerInfo = await lstat(pointer)
+  if (pointerInfo.isSymbolicLink() || !pointerInfo.isDirectory()) fail('Linked worktree metadata must be a real directory')
+  const metadataDirectory = await realpath(pointer)
+
+  const absoluteGitDirRaw = await gitText(cwd, ['rev-parse', '--absolute-git-dir'])
+  if (!isAbsolute(absoluteGitDirRaw)) fail('Git absolute-git-dir must be absolute')
+  await rejectSymlinkComponents(absoluteGitDirRaw, false)
+  const absoluteGitDir = await realpath(absoluteGitDirRaw)
+  if (absoluteGitDir !== metadataDirectory) fail('Linked worktree gitdir pointer does not match absolute-git-dir')
+
+  const commonDirectory = await resolveGitPath(cwd, ['rev-parse', '--git-common-dir'], 'Git common directory')
+  const worktreesDirectory = join(commonDirectory, 'worktrees')
+  await rejectSymlinkComponents(worktreesDirectory, false)
+  const worktreesInfo = await lstat(worktreesDirectory)
+  if (worktreesInfo.isSymbolicLink() || !worktreesInfo.isDirectory()) fail('Git worktrees registry is invalid')
+  const canonicalWorktrees = await realpath(worktreesDirectory)
+  if (absoluteGitDir === canonicalWorktrees || !pathInside(canonicalWorktrees, absoluteGitDir)) {
+    fail('Linked worktree metadata must live inside the repository worktrees registry')
+  }
+
+  const backlinkBuffer = await readBoundedRegularFile(join(absoluteGitDir, 'gitdir'), GIT_FILE_MAX_BYTES, 'Git metadata backlink')
+  const backlinkText = backlinkBuffer.toString('utf8')
+  if (!Buffer.from(backlinkText).equals(backlinkBuffer)) fail('Git metadata backlink is not valid UTF-8')
+  const backlink = backlinkText.replace(/\r\n/g, '\n').replace(/\n$/, '')
+  if (!backlink || backlink.includes('\0') || backlink.includes('\n') || backlink.includes('\r') || !isAbsolute(backlink)) {
+    fail('Git metadata backlink must be an absolute path')
+  }
+  await rejectSymlinkComponents(backlink, false)
+  let backlinkInfo: Awaited<ReturnType<typeof lstat>>
+  try { backlinkInfo = await lstat(backlink) }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') fail('Git metadata backlink does not point at this worktree .git file')
+    throw error
+  }
+  if (backlinkInfo.isSymbolicLink() || !backlinkInfo.isFile()) fail('Git metadata backlink must point at this worktree .git file')
+  if (await realpath(backlink) !== await realpath(gitFilePath)) {
+    fail('Git metadata backlink does not point at this worktree .git file')
+  }
+
+  const listed = parseWorktreeList(await git(cwd, ['-c', 'core.quotePath=false', 'worktree', 'list', '--porcelain']))
+  const matches: ListedWorktree[] = []
+  for (const record of listed) {
+    if (typeof record.path !== 'string' || !isAbsolute(record.path) || /[\0\r\n]/.test(record.path)) {
+      fail('Git returned an invalid worktree path')
+    }
+    let recordPath: string
+    try { recordPath = await realpath(record.path) }
+    catch { continue }
+    if (recordPath === cwd) matches.push(record)
+  }
+  if (matches.length !== 1) fail('Linked worktree is not uniquely registered with its repository')
+  if (matches[0]!.head !== headRevision) fail('Linked worktree registration HEAD does not match the working tree')
 }
 
 async function rejectSymlinkComponents(path: string, allowMissing: boolean): Promise<void> {
@@ -190,6 +340,24 @@ async function canonicalDirectory(path: string, label: string, create: boolean):
   return realpath(absolute)
 }
 
+async function privateArtifactRoot(path: string, create: boolean): Promise<string> {
+  if (typeof path !== 'string' || !isAbsolute(path)) fail('artifact root must be absolute')
+  const absolute = resolve(path)
+  await rejectSymlinkComponents(absolute, create)
+  try {
+    await assertPrivateDirectory(absolute, 'artifact root')
+  } catch (error) {
+    if (!create || (error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    await mkdir(absolute, { recursive: true, mode: 0o700 })
+    // Only tighten permissions on a directory we just created; never chmod caller-shared data.
+    await chmod(absolute, 0o700)
+    await assertPrivateDirectory(absolute, 'artifact root')
+  }
+  await rejectSymlinkComponents(absolute, false)
+  await assertPrivateDirectory(absolute, 'artifact root')
+  return realpath(absolute)
+}
+
 async function prospectiveDirectory(path: string, label: string): Promise<string> {
   if (typeof path !== 'string' || !isAbsolute(path)) fail(`${label} must be absolute`)
   const absolute = resolve(path)
@@ -219,20 +387,33 @@ async function repository(cwdInput: string, baseInput: string): Promise<GitRepos
     fail('baseRevision must be a nonempty Git revision')
   }
   const topLevel = await gitText(cwd, ['rev-parse', '--show-toplevel'])
+  if (!isAbsolute(topLevel)) fail('Git root must be absolute')
   const root = await canonicalDirectory(topLevel, 'Git root', false)
-  if (!pathInside(root, cwd)) fail('cwd is outside its Git root')
+  if (root !== cwd) fail('cwd must be the Git worktree top level')
 
   const metadataPath = join(root, '.git')
+  await rejectSymlinkComponents(metadataPath, false)
   const metadata = await lstat(metadataPath)
-  if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
-    fail('Git metadata links and submodule worktrees are unsupported')
-  }
-  const actualGitDirectory = await gitText(cwd, ['rev-parse', '--absolute-git-dir'])
-  if (await realpath(actualGitDirectory) !== metadataPath) fail('Linked or external Git metadata is unsupported')
+  if (metadata.isSymbolicLink()) fail('Git metadata symlinks are unsupported')
 
   const baseRevision = await gitText(cwd, ['rev-parse', '--verify', '--end-of-options', `${baseInput}^{commit}`])
   const headRevision = await gitText(cwd, ['rev-parse', '--verify', 'HEAD^{commit}'])
   if (!GIT_OBJECT_ID.test(baseRevision) || !GIT_OBJECT_ID.test(headRevision)) fail('Git did not resolve revisions to commit hashes')
+
+  if (metadata.isDirectory()) {
+    const actualGitDirectory = await gitText(cwd, ['rev-parse', '--absolute-git-dir'])
+    if (!isAbsolute(actualGitDirectory)) fail('Git absolute-git-dir must be absolute')
+    if (await realpath(actualGitDirectory) !== await realpath(metadataPath)) {
+      fail('External Git metadata is unsupported')
+    }
+    const commonDirectory = await resolveGitPath(cwd, ['rev-parse', '--git-common-dir'], 'Git common directory')
+    if (commonDirectory !== await realpath(metadataPath)) fail('Non-linked repositories must use their local Git metadata directory')
+  } else if (metadata.isFile()) {
+    await assertLinkedWorktree(cwd, metadataPath, headRevision)
+  } else {
+    fail('Git metadata must be a directory or a regular gitdir file')
+  }
+
   return { cwd, root, baseRevision, headRevision }
 }
 
@@ -424,6 +605,9 @@ export class ArtifactStore {
     this.maxFiles = boundedInteger(options.maxFiles, DEFAULT_MAX_FILES, 'maxFiles')
   }
 
+  /** Read-only location for authorized artifact consumers; filesystem validation still occurs on access. */
+  get rootDirectory(): string { return this.configuredRoot }
+
   async capture(input: CaptureArtifactInput): Promise<ArtifactManifest> {
     assertObject(input, 'capture input')
     assertExactKeys(input as unknown as Record<string, unknown>, ['artifactId', 'executionId', 'cwd', 'baseRevision'], 'capture input')
@@ -434,7 +618,7 @@ export class ArtifactStore {
     if (pathInside(prospectiveRoot, repo.root) || pathInside(repo.root, prospectiveRoot)) {
       fail('Artifact root and Git root must not overlap')
     }
-    const root = await canonicalDirectory(this.configuredRoot, 'artifact root', true)
+    const root = await privateArtifactRoot(this.configuredRoot, true)
     if (root !== prospectiveRoot) fail('Artifact root identity changed during capture')
 
     const finalDirectory = join(root, artifactId)
@@ -447,8 +631,10 @@ export class ArtifactStore {
     const unique = new Set(listed)
     if (unique.size !== listed.length) fail('Git returned duplicate artifact paths')
 
+    // Compare against the accepted base revision so committed and staged deletions are recorded.
+    // `diff HEAD` alone misses deletions that were already committed after baseRevision.
     const deletedPaths = [...new Set(parseNulList(
-      await git(repo.root, ['diff', '--name-only', '--diff-filter=D', '-z', 'HEAD', '--']), 'deleted path list',
+      await git(repo.root, ['diff', '--name-only', '--diff-filter=D', '-z', repo.baseRevision, '--']), 'deleted path list',
     ).map(path => safeRelativePath(path, 'Git deleted path')).filter(path => !isExecutionMarker(path)))].sort(comparePaths)
     const deleted = new Set(deletedPaths)
     const paths = listed.filter(path => !deleted.has(path)).sort(comparePaths)
@@ -496,7 +682,7 @@ export class ArtifactStore {
         await git(repo.root, ['ls-files', '-z', '--cached', '--others', '--exclude-standard']), 'file list',
       ).map(path => safeRelativePath(path, 'Git file path')).filter(path => !isExecutionMarker(path))
       const redeleted = [...new Set(parseNulList(
-        await git(repo.root, ['diff', '--name-only', '--diff-filter=D', '-z', 'HEAD', '--']), 'deleted path list',
+        await git(repo.root, ['diff', '--name-only', '--diff-filter=D', '-z', repo.baseRevision, '--']), 'deleted path list',
       ).map(path => safeRelativePath(path, 'Git deleted path')).filter(path => !isExecutionMarker(path)))].sort(comparePaths)
       const redeletedSet = new Set(redeleted)
       const currentPaths = [...new Set(relisted)].filter(path => !redeletedSet.has(path)).sort(comparePaths)
@@ -537,7 +723,7 @@ export class ArtifactStore {
 
   async manifest(artifactIdInput: string): Promise<ArtifactManifest> {
     const artifactId = safeId(artifactIdInput, 'artifactId')
-    const root = await canonicalDirectory(this.configuredRoot, 'artifact root', false)
+    const root = await privateArtifactRoot(this.configuredRoot, false)
     const artifactDirectory = join(root, artifactId)
     await rejectSymlinkComponents(artifactDirectory, false)
     const directoryInfo = await lstat(artifactDirectory)
@@ -553,7 +739,7 @@ export class ArtifactStore {
 
   async verify(artifactIdInput: string): Promise<ArtifactManifest> {
     const artifactId = safeId(artifactIdInput, 'artifactId')
-    const root = await canonicalDirectory(this.configuredRoot, 'artifact root', false)
+    const root = await privateArtifactRoot(this.configuredRoot, false)
     const artifactDirectory = join(root, artifactId)
     await rejectSymlinkComponents(artifactDirectory, false)
     const entries = await readdir(artifactDirectory, { withFileTypes: true })

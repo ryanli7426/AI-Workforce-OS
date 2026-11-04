@@ -220,6 +220,8 @@ export class IntentRepository {
       throw new Error('Intent schema is incomplete')
   }
 
+  get inTransaction(): boolean { return this.db.isTransaction }
+
   private audit(id: string, event: IntentAudit): void {
     this.db.prepare(`INSERT INTO orchestration_intent_audit
       (intent_id, at, action, from_status, to_status, owner, reason, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)

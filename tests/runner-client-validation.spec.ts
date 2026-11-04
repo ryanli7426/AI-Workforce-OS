@@ -345,3 +345,21 @@ setInterval(() => {}, 1000);
     await expect(client.events('ev1')).rejects.toThrow(/expected sequence 2/)
   })
 })
+
+
+it('does not initialize a missing Runner root when observing or stopping', async () => {
+  const missing = join(root, 'missing-root')
+  const client = new RunnerClient({ root: missing })
+  await expect(client.status('exec1')).rejects.toThrow('root missing')
+  await expect(client.events('exec1')).rejects.toThrow('root missing')
+  await expect(client.stop('exec1', 'test')).rejects.toThrow('root missing')
+  expect(existsSync(missing)).toBe(false)
+})
+
+
+it('rejects a success snapshot without actual clean exit evidence', async () => {
+  const launch = spec({ executionId: 'forged-success' })
+  seedExecution(launch, { state: { state: 'SUCCEEDED', finishedAt: new Date().toISOString() } })
+  const client = new RunnerClient({ root })
+  await expect(client.status(launch.executionId)).rejects.toThrow('exit proof')
+})

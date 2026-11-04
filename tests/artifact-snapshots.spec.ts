@@ -7,6 +7,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -15,6 +16,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ArtifactStore } from '../src/artifacts/snapshots.ts'
+import { GitWorktreeManager } from '../src/workspaces/git-worktrees.ts'
 
 let root: string
 let repository: string
@@ -22,7 +24,31 @@ let artifacts: string
 let baseRevision: string
 
 function git(...args: string[]): string {
-  return execFileSync('git', ['-C', repository, ...args], { encoding: 'utf8' }).trim()
+  return execFileSync('git', ['-C', repository, ...args], {
+    encoding: 'utf8',
+    env: {
+      PATH: process.env.PATH ?? '/usr/bin:/bin',
+      LANG: 'C',
+      LC_ALL: 'C',
+      GIT_CONFIG_NOSYSTEM: '1',
+      GIT_CONFIG_GLOBAL: '/dev/null',
+      GIT_TERMINAL_PROMPT: '0',
+    },
+  }).trim()
+}
+
+function gitAt(cwd: string, ...args: string[]): string {
+  return execFileSync('git', ['-C', cwd, ...args], {
+    encoding: 'utf8',
+    env: {
+      PATH: process.env.PATH ?? '/usr/bin:/bin',
+      LANG: 'C',
+      LC_ALL: 'C',
+      GIT_CONFIG_NOSYSTEM: '1',
+      GIT_CONFIG_GLOBAL: '/dev/null',
+      GIT_TERMINAL_PROMPT: '0',
+    },
+  }).trim()
 }
 
 function capture(store: ArtifactStore, artifactId = 'artifact-1', executionId = 'execution-1', base = baseRevision) {
@@ -99,6 +125,44 @@ describe('ArtifactStore capture', () => {
     expect(manifest.baseRevision).toBe(baseRevision)
     expect(manifest.headRevision).toBe(headRevision)
     expect(manifest.headRevision).not.toBe(manifest.baseRevision)
+  })
+
+  it('records committed and staged deletions against the accepted base revision', async () => {
+    rmSync(join(repository, 'deleted.txt'))
+    git('add', '--', 'deleted.txt')
+    git('commit', '--quiet', '-m', 'commit deletion')
+    const headAfterCommit = git('rev-parse', 'HEAD')
+    git('rm', '--quiet', '--', 'tracked.txt')
+
+    const manifest = await capture(new ArtifactStore({ root: artifacts }))
+
+    expect(manifest.baseRevision).toBe(baseRevision)
+    expect(manifest.headRevision).toBe(headAfterCommit)
+    expect(manifest.headRevision).not.toBe(manifest.baseRevision)
+    expect(manifest.deletedPaths).toEqual(['deleted.txt', 'tracked.txt'])
+    expect(manifest.files.map(file => file.path)).toEqual(['binary.dat'])
+    expect(existsSync(join(artifacts, 'artifact-1', 'files', 'deleted.txt'))).toBe(false)
+    expect(existsSync(join(artifacts, 'artifact-1', 'files', 'tracked.txt'))).toBe(false)
+  })
+
+  it('rejects a preexisting shared artifact root without chmodding caller data', async () => {
+    mkdirSync(artifacts, { mode: 0o755 })
+    chmodSync(artifacts, 0o755)
+    const modeBefore = lstatSync(artifacts).mode & 0o777
+
+    await expect(capture(new ArtifactStore({ root: artifacts }), 'shared-root')).rejects.toThrow(/private directory/)
+    expect(lstatSync(artifacts).mode & 0o777).toBe(modeBefore)
+    expect(readdirSync(artifacts)).toEqual([])
+  })
+
+  it('copies artifact files independently from the source working tree', async () => {
+    const store = new ArtifactStore({ root: artifacts })
+    const manifest = await capture(store)
+    const source = lstatSync(join(repository, 'tracked.txt'))
+    const snapshot = lstatSync(join(artifacts, 'artifact-1', 'files', 'tracked.txt'))
+    expect(snapshot.ino).not.toBe(source.ino)
+    expect(snapshot.nlink).toBe(1)
+    expect(await store.verify('artifact-1')).toEqual(manifest)
   })
 
   it('rejects an unknown base revision without creating a final artifact', async () => {
@@ -228,5 +292,137 @@ describe('ArtifactStore verification', () => {
 
     writeFileSync(join(artifacts, 'artifact-1', 'foreign'), 'foreign')
     await expect(store.verify('artifact-1')).rejects.toThrow(/unexpected entries/)
+  })
+})
+
+describe('ArtifactStore linked worktrees', () => {
+  let sandbox: string
+  let mainRepository: string
+  let worktreeRoot: string
+  let artifactRoot: string
+
+  beforeEach(() => {
+    sandbox = mkdtempSync(join(tmpdir(), 'workforce-artifact-worktree-'))
+    mainRepository = join(sandbox, 'repository')
+    worktreeRoot = join(sandbox, 'worktrees')
+    artifactRoot = join(sandbox, 'artifacts')
+    mkdirSync(mainRepository)
+    gitAt(mainRepository, 'init', '--quiet')
+    gitAt(mainRepository, 'config', 'user.name', 'Artifact Worktree Test')
+    gitAt(mainRepository, 'config', 'user.email', 'artifact-worktree@example.test')
+    writeFileSync(join(mainRepository, 'tracked.txt'), 'main tracked\n')
+    writeFileSync(join(mainRepository, 'delete-me.txt'), 'remove later\n')
+    gitAt(mainRepository, 'add', '--', 'tracked.txt', 'delete-me.txt')
+    gitAt(mainRepository, 'commit', '--quiet', '-m', 'main fixture')
+  })
+
+  afterEach(() => { rmSync(sandbox, { recursive: true, force: true }) })
+
+  it('captures and verifies a GitWorktreeManager worktree without changing the main repository', async () => {
+    const manager = new GitWorktreeManager({ repository: mainRepository, root: worktreeRoot })
+    const created = await manager.create('ticket-1', 'assignment-1', 'execution-1')
+    const mainStatusBefore = gitAt(mainRepository, 'status', '--porcelain=v1', '-z')
+    const mainHeadBefore = gitAt(mainRepository, 'rev-parse', 'HEAD')
+    const mainTrackedBefore = readFileSync(join(mainRepository, 'tracked.txt'))
+
+    writeFileSync(join(created.path, 'tracked.txt'), 'worktree tracked\n')
+    mkdirSync(join(created.path, 'nested'))
+    writeFileSync(join(created.path, 'nested', 'added.txt'), 'from worktree\n')
+    rmSync(join(created.path, 'delete-me.txt'))
+    writeFileSync(join(created.path, '.workforce-execution.json'), '{"private":true}\n')
+
+    const store = new ArtifactStore({ root: artifactRoot })
+    const manifest = await store.capture({
+      artifactId: 'worktree-artifact',
+      executionId: 'execution-1',
+      cwd: created.path,
+      baseRevision: created.baseRevision,
+    })
+
+    expect(manifest).toMatchObject({
+      version: 1,
+      artifactId: 'worktree-artifact',
+      executionId: 'execution-1',
+      baseRevision: created.baseRevision,
+      headRevision: created.baseRevision,
+      deletedPaths: ['delete-me.txt'],
+    })
+    expect(manifest.files.map(file => file.path)).toEqual(['nested/added.txt', 'tracked.txt'])
+    expect(readFileSync(join(artifactRoot, 'worktree-artifact', 'files', 'tracked.txt'), 'utf8')).toBe('worktree tracked\n')
+    expect(existsSync(join(artifactRoot, 'worktree-artifact', 'files', '.workforce-execution.json'))).toBe(false)
+    expect(await store.verify('worktree-artifact')).toEqual(manifest)
+
+    expect(gitAt(mainRepository, 'rev-parse', 'HEAD')).toBe(mainHeadBefore)
+    expect(gitAt(mainRepository, 'status', '--porcelain=v1', '-z')).toBe(mainStatusBefore)
+    expect(readFileSync(join(mainRepository, 'tracked.txt'))).toEqual(mainTrackedBefore)
+    expect(existsSync(join(mainRepository, 'delete-me.txt'))).toBe(true)
+    expect(existsSync(join(mainRepository, 'nested'))).toBe(false)
+  })
+
+  it('records deletions committed in a linked worktree against the original base revision', async () => {
+    const manager = new GitWorktreeManager({ repository: mainRepository, root: worktreeRoot })
+    const created = await manager.create('ticket-2', 'assignment-2', 'execution-2')
+    rmSync(join(created.path, 'delete-me.txt'))
+    gitAt(created.path, 'add', '--', 'delete-me.txt')
+    gitAt(created.path, 'commit', '--quiet', '-m', 'delete in worktree')
+    const headRevision = gitAt(created.path, 'rev-parse', 'HEAD')
+
+    const manifest = await new ArtifactStore({ root: artifactRoot }).capture({
+      artifactId: 'committed-delete',
+      executionId: 'execution-2',
+      cwd: created.path,
+      baseRevision: created.baseRevision,
+    })
+
+    expect(manifest.baseRevision).toBe(created.baseRevision)
+    expect(manifest.headRevision).toBe(headRevision)
+    expect(manifest.headRevision).not.toBe(manifest.baseRevision)
+    expect(manifest.deletedPaths).toEqual(['delete-me.txt'])
+    expect(manifest.files.map(file => file.path)).toEqual(['tracked.txt'])
+    expect(gitAt(mainRepository, 'cat-file', '-e', `${created.baseRevision}^{commit}`)).toBe('')
+    expect(existsSync(join(mainRepository, 'delete-me.txt'))).toBe(true)
+  })
+
+  it('accepts a legitimate linked worktree and rejects a forged gitdir backlink', async () => {
+    const manager = new GitWorktreeManager({ repository: mainRepository, root: worktreeRoot })
+    const legitimate = await manager.create('ticket-3', 'assignment-3', 'execution-legit')
+    const forged = await manager.create('ticket-3', 'assignment-3', 'execution-forged')
+    const store = new ArtifactStore({ root: artifactRoot })
+
+    await expect(store.capture({
+      artifactId: 'legit-link',
+      executionId: 'execution-legit',
+      cwd: legitimate.path,
+      baseRevision: legitimate.baseRevision,
+    })).resolves.toMatchObject({ artifactId: 'legit-link', baseRevision: legitimate.baseRevision })
+
+    const forgedGitDirectory = realpathSync(gitAt(forged.path, 'rev-parse', '--absolute-git-dir'))
+    writeFileSync(join(forgedGitDirectory, 'gitdir'), `${join(sandbox, 'missing', '.git')}\n`)
+
+    await expect(store.capture({
+      artifactId: 'forged-link',
+      executionId: 'execution-forged',
+      cwd: forged.path,
+      baseRevision: forged.baseRevision,
+    })).rejects.toThrow(/backlink|Git metadata|symbolic link|ENOENT|unsupported|registered/i)
+    expect(existsSync(join(artifactRoot, 'forged-link'))).toBe(false)
+  })
+
+  it('rejects arbitrary .git redirection outside the worktrees registry', async () => {
+    const decoy = join(sandbox, 'decoy-git')
+    mkdirSync(decoy)
+    writeFileSync(join(decoy, 'HEAD'), 'ref: refs/heads/main\n')
+    const foreign = join(sandbox, 'foreign-tree')
+    mkdirSync(foreign)
+    writeFileSync(join(foreign, 'tracked.txt'), 'foreign\n')
+    writeFileSync(join(foreign, '.git'), `gitdir: ${decoy}\n`)
+
+    await expect(new ArtifactStore({ root: artifactRoot }).capture({
+      artifactId: 'redirect',
+      executionId: 'execution-redirect',
+      cwd: foreign,
+      baseRevision: gitAt(mainRepository, 'rev-parse', 'HEAD'),
+    })).rejects.toThrow()
+    expect(existsSync(join(artifactRoot, 'redirect'))).toBe(false)
   })
 })

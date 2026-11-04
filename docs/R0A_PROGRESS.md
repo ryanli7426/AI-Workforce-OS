@@ -12,7 +12,7 @@
 - Git Worktree：每个 Execution 独立目录，marker/仓库归属验证，安全清理与 dirty 审批。
 - 规则评估、版本化员工/项目、持久意图、单次 scoped 审批、只读分页查询、一致 SQLite 备份、分块凭证脱敏和产物快照模块。
 
-这些模块有独立测试与组合测试，但员工、项目、审批、意图等尚未全部通过生产调度/API/CLI 串联。LocalStore 的历史 schema 保持不变，应用模块由显式 initializer 在同一事务内初始化。
+这些模块有独立测试与组合测试。员工、项目和备份已有管理 CLI；Task 应用、持久意图消费者和独立验证器已集成，Task 调度与 CLI 正在组合审查，尚无生产 daemon/API/真实钉钉闭环。LocalStore 的历史 schema 保持不变，应用模块由显式 initializer 在同一事务内初始化。
 
 ## 多 Agent 实施与父 Agent Review
 
@@ -41,7 +41,9 @@
 
 - 当前 Runner 生命周期可靠终止面向 POSIX；Windows 明确拒绝，需独立实现进程树控制后支持。
 - 私有控制目录和随机 stop token 限制本机误操作，不是对同用户恶意程序的 OS 安全隔离。
-- 目前 ArtifactStore 接受普通 Git 仓库，拒绝 linked worktree；必须修复并测试该组合，再承诺正式执行产物闭环。
+- ArtifactStore 已支持合法 linked worktree，校验 Git commonDir、registry 与 backlink，并记录相对基线的删除；已对真实 Claude 执行工作树生成快照且独立本地检查通过，见 reviews/r0a/CLAUDE_ARTIFACT_VERIFICATION.json。
 - 本机凭证使用方式由应用层选择。CLI 自身加载的用户配置、认证辅助和网络仍需项目治理，不把 prompt/cwd 当强沙箱。
-- 后续：Cursor 修复 linked-worktree snapshot，扩展管理 CLI，落地持久意图消费者和隔离产物验证器；随后串联真实 Task 创建、分派、Runner、验证、人工审核、交付。
+- 第二批 Cursor 5 路、第三批 Cursor 4 路已集成，最新完整门禁为32文件、506项测试通过，无跳过测试。Task CLI 已串联创建、审批、分派、Runner、独立产物检查和明确人工验收；6项编译后 CLI 测试从无关 cwd 启动，使用 mock Runtime，证明重复启动控制 CLI 不会重复执行。
+- 父 Agent 另修复：异步操作前数据库被关闭、JSON 字段被错误强制转字符串、HOME 下项目被误拒、Runner 路径依赖 caller cwd、取消先于 Core 观察 RUNNING 导致无法收敛、已存在 UNKNOWN 执行的 launch 重放误确认停止、执行结束前快照被误当最终产物。新增异常回归均随完整门禁通过。
+- 以上是 Task CLI 与执行闭环验收，未代表后台长期运行、真实钉钉或完整产品已交付。操作说明见 LOCAL_OPERATIONS.md。
 - 钉钉 Issue 实际字段与回写位置仍需真实契约；其准备不阻塞上述独立工程。
