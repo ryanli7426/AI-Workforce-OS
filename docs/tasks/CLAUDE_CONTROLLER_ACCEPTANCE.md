@@ -1,0 +1,12 @@
+# Claude Code: real compiled controller process acceptance
+
+Own ONLY `tests/compiled-controller.spec.ts`. Read AGENTS.md, CURSOR_CONTROLLER_CLI.md, CURSOR_OPERATIONS.md and current compiled Task CLI tests. Parent integrates dependencies and runs tests; do not edit dependencies, install, commit, push, delegate or use a real Runtime/model in tests. Your implementation tools are Read/Edit/Write only; report tests as unrun unless actually available.
+
+Write real subprocess tests against absolute `dist/cli/index.js`, from an unrelated cwd, private temp Git/data/HOME. Build-before-test is the repository contract. Fixture Runtime must be a local temporary executable producing actual structured Claude JSON after 2–4s and modifying only its assigned worktree. Tests must not have pending/skip guards or fake replacement modules. All child commands bounded; failure cleanup only fresh child handles or authenticated Runner stop; never harvest historical PID records and signal blindly.
+
+Cover:
+1. Init/configure → start --foreground → actual startup_reconciled event → controller-status running with fresh child PID → second controller refused → stop returns requestedtrue → original child exits0 → status stopped. Persisted controller-events JSONL private0600, no owner/stop token echoed. Missing-data status/stop do not create storage.
+2. Approved queued Task → foreground controller starts real mock Runtime → stop controller while Execution RUNNING, wait controller exit → original Runner remains active → restart controller → same execution ID and launch count1 → REVIEW after real worktree modification, original repo untouched, no automatic DONE → graceful stop. Use actual project/employee config commands/contracts.
+3. Kill only the freshly spawned controller child via child.kill('SIGKILL') while Runner active → new controller safely recovers confirmed dead controller lease → retains/reconciles same Execution without duplicate launch → REVIEW. Controller death never proves Runtime died. Stop restarted controller, clean fixture children through Runner API.
+
+Use bounded polling of real output/state and final timeout60s per combination. Prefer shared helpers in this test file; do not import tests with global hooks. Assertions must prove actual states, liveness and file bytes, not merely find command names in source. Parent may copy dependencies once reviewed; if absent, clearly report missing modules instead of inventing substitutes.
