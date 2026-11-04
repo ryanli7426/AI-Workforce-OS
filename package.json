@@ -14,7 +14,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
-    "test": "vitest run",
+    "test": "pnpm build && vitest run",
     "build": "tsc -p tsconfig.json",
     "smoke": "node scripts/smoke.mjs",
     "check:dependencies": "node scripts/check-dependencies.mjs",

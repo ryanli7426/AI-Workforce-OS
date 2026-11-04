@@ -1,0 +1,21 @@
+{
+  "executionState": "SUCCEEDED",
+  "exitCode": 0,
+  "parsedTerminal": "success",
+  "summary": "Changed the requested fixture README typo in the isolated execution worktree; original repository untouched.",
+  "usage": {
+    "inputTokens": 4231,
+    "outputTokens": 266,
+    "cacheReadTokens": 13696,
+    "cacheCreationTokens": 0
+  },
+  "fileChanged": true,
+  "sourceUntouched": true,
+  "eventStates": [
+    "STARTING",
+    "RUNNING",
+    "SUCCEEDED"
+  ],
+  "cliVersion": "2.1.181",
+  "validation": "Real local Claude Code invocation through compiled independent Runner and persistent ExecutionService. This is runtime acceptance evidence, not full Task/CI/human-review acceptance."
+}
