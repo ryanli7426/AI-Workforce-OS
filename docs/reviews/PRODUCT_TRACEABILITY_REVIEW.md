@@ -1,3 +1,5 @@
+> 历史快照说明：本文是API/Web实施前的独立审查，保留原始结论供追溯。2026-11-05后，前台控制器、认证API与首批Web已交付；当前事实以 DELIVERY_TRACKER.md、WEB_OPERATIONS.md 和 reviews/r1/WEB_ACCEPTANCE.md 为准。本文的“无API/Web、0/19”不能作为最新代码状态。
+
 # AI Workforce OS 需求追踪审计报告
 
 ## 1. 审计口径与总体结论

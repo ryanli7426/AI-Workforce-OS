@@ -1,6 +1,6 @@
 # 本地操作说明
 
-适用：当前独立仓库。前台控制器与 run-once 已交付；认证本地 HTTP API 已交付；OS 后台服务、Web 和真实钉钉接入尚未交付。显式 `start --foreground` 或 `run-once` 调度已授权任务并可能启动 Agent；管理与查询命令不隐式启动 Agent。
+适用：当前独立仓库。前台控制器与 run-once 已交付；认证本地 HTTP API 与首批 Web 已交付；OS 后台服务和真实钉钉接入尚未交付。显式 `start --foreground` 或 `run-once` 调度已授权任务并可能启动 Agent；管理与查询命令不隐式启动 Agent。
 
 ## 工程检查与显式初始化
 
@@ -165,4 +165,4 @@ API 前缀 `/api/v1`：GET health/me/overview/employees/projects/tasks/tasks/:id
 
 所有写请求需 `Idempotency-Key`；非创建操作还需当前 `expectedVersion`。相同键及请求重放返回原提交结果，键冲突或版本冲突返回409。请求人由服务端 Owner 确定。命令回执与状态变更同一事务提交；API 不启动 Agent 或控制器。验证仍使用 task-verify CLI；不能通过写入 passed 字段绕过验证。SIGINT/SIGTERM 仅关闭 API，保留独立控制器与 Runner。
 
-真实编译后 TCP 验收通过，证据见 reviews/r1/HTTP_API_PILOT.json。当前无 Web 页面、SSE、异步验证 API、员工/项目写 API、多用户身份或真实钉钉闭环。
+真实编译后 TCP 验收通过，证据见 reviews/r1/HTTP_API_PILOT.json。首批 Web 的同源启动和真实页面操作见 [Web 操作说明](WEB_OPERATIONS.md)。SSE、异步验证 API、员工/项目写 API、多用户身份和真实钉钉闭环尚未交付。

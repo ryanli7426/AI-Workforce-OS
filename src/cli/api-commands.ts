@@ -59,6 +59,7 @@ interface ApiServeCommand extends BaseParsed {
   command: 'api-serve'
   port: number
   allowOrigin?: string
+  webRoot?: string
 }
 
 type ParsedApiCommand = ApiInitCommand | ApiServeCommand
@@ -163,6 +164,7 @@ function parseArgs(argv: readonly string[]): ParsedApiCommand {
   let portSeen = false
   let allowOrigin: string | undefined
   let allowOriginSeen = false
+  let webRoot: string | undefined
 
   for (let index = 0; index < options.length; index++) {
     const option = options[index]!
@@ -177,6 +179,11 @@ function parseArgs(argv: readonly string[]): ParsedApiCommand {
       if (portSeen) fail('Option --port may only be provided once')
       port = parsePort(requireOptionValue(options, ++index, '--port'))
       portSeen = true
+      continue
+    }
+    if (option === '--web-root') {
+      if (command !== 'api-serve' || webRoot !== undefined) fail('Invalid option --web-root')
+      webRoot = resolve(requireOptionValue(options, ++index, '--web-root'))
       continue
     }
     if (option === '--allow-origin') {
@@ -203,6 +210,7 @@ function parseArgs(argv: readonly string[]): ParsedApiCommand {
     dataDir,
     port,
     ...(allowOrigin !== undefined ? { allowOrigin } : {}),
+    ...(webRoot !== undefined ? { webRoot } : {}),
   }
 }
 
@@ -413,6 +421,7 @@ async function handleServe(parsed: ApiServeCommand, io: ApiCliIO): Promise<numbe
       authenticator,
       allowedOrigins,
       dataDir: absoluteDataDir,
+      ...(parsed.webRoot === undefined ? {} : { webRoot: parsed.webRoot }),
     })
     const listeningAddress = await app.listen({
       host: '127.0.0.1',

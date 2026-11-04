@@ -12,7 +12,7 @@
 
 ## 2. 新仓库实际技术与历史处理意见
 
-新仓库已使用 TypeScript 6、Node.js 22/24 engines、pnpm 11、Vitest 4、`tsc` 和内置 `node:sqlite`。已在本机 Node 22.23.1 通过类型、单元/进程集成、编译后 CLI、独立 smoke 与依赖扫描。当前运行时 npm 依赖为 **Fastify 5.12.8**（认证本地 HTTP API）；Core/SQLite 的无 node_modules smoke 仍通过。Zod、proper-lockfile、React、Pino 等尚未安装；下表这些项目描述的是旧仓库的迁移背景，不能视为新项目已提供的能力。路径与进程控制当前按 POSIX 验收，Windows 运行执行链路尚不支持。
+新仓库已使用 TypeScript 6、Node.js 22/24 engines、pnpm 11、Vitest 4、`tsc` 和内置 `node:sqlite`。已在本机 Node 22.23.1 通过类型、单元/进程集成、编译后 CLI、独立 smoke 与依赖扫描。当前运行时 npm 依赖为 **Fastify 5.12.8、React/React DOM 19.3.1、TanStack Query 5.105.3**。前端工具为 **Vite 8.3.5、React插件5.2.0**；Web测试已安装Testing Library、jsdom和Playwright1.64.1。Core/SQLite 的无 node_modules smoke 仍通过。Zod、proper-lockfile、Pino、TanStack Router、Tailwind/shadcn尚未安装；下表这些项目描述的是旧仓库的迁移背景，不能视为新项目已提供的能力。路径与进程控制当前按 POSIX 验收，Windows 运行执行链路尚不支持。
 
 以下是历史组件的处理建议：
 
@@ -96,3 +96,9 @@ React Flow 的节点状态只是后端运行状态的展示，不能因为前端
 - [shadcn/ui](https://ui.shadcn.com/docs)
 - [React Flow](https://reactflow.dev/learn)
 - [Playwright](https://playwright.dev/docs/intro)
+
+## 2026-11-05 实施补充
+
+第一批Web使用独立web/目录、类型隔离、Vite生产构建及同源Fastify资源服务。当前7类资源视图使用轻量hash路由，避免本地静态服务的任意路径回退；不将菜单当作完整模块交付。Query承担服务端数据刷新，命令使用原子回执和显式版本。CSS设计变量提供响应式和深浅主题；尚未引入Router或组件库。后续路由/表单复杂度增长时统一路由层，不重写领域状态机。
+
+安装时发现本地npm镜像尚未同步最新Query内部依赖，最终固定已完整可用的5.105.3并从官方registry解析，没有保留临时的依赖发布时间策略例外。运行命令及浏览器门禁见 WEB_OPERATIONS.md。

@@ -1,0 +1,29 @@
+{
+  "verifiedAt": "2026-11-04T23:14:55.185630+00:00",
+  "command": "pnpm check",
+  "exitCode": 0,
+  "backend": {
+    "files": 43,
+    "tests": 638
+  },
+  "webUnit": {
+    "files": 4,
+    "tests": 50
+  },
+  "realChromiumE2E": {
+    "tests": 1,
+    "runtimeCalls": 0
+  },
+  "typecheck": [
+    "backend",
+    "web"
+  ],
+  "build": [
+    "backend",
+    "web"
+  ],
+  "standaloneCoreSqliteSmoke": true,
+  "compiledCliSmoke": true,
+  "deepseekDependencyScan": "none",
+  "scope": "first operational single-Owner Web slice; complete PRD remains in progress"
+}

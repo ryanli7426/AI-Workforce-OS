@@ -1,5 +1,6 @@
 /** Authenticated local HTTP application transport. Factory never listens, migrates, or starts Runtime. */
 import { isAbsolute } from 'node:path'
+import { loadWebAssets } from './web-assets.ts'
 import Fastify, {
   type FastifyInstance,
   type FastifyReply,
@@ -41,6 +42,7 @@ export interface CreateApiServerOptions {
   authenticator: ApiAuthenticator
   allowedOrigins: readonly string[]
   dataDir: string
+  webRoot?: string
 }
 
 interface ApiErrorBody {
@@ -398,7 +400,7 @@ const emptyQuery = {
  */
 export function createApiServer(options: CreateApiServerOptions): FastifyInstance {
   const input = requireObject(options, 'createApiServer options')
-  const allowed = new Set(['store', 'settings', 'authenticator', 'allowedOrigins', 'dataDir'])
+  const allowed = new Set(['store', 'settings', 'authenticator', 'allowedOrigins', 'dataDir', 'webRoot'])
   for (const field of Object.keys(input)) {
     if (!allowed.has(field)) {
       if (SAFE_FIELD_NAME.test(field) && !CREDENTIAL_FIELD.test(field)) {
@@ -422,6 +424,7 @@ export function createApiServer(options: CreateApiServerOptions): FastifyInstanc
 
   const allowedOrigins = snapshotAllowedOrigins(input.allowedOrigins)
   const dataDir = requireAbsoluteDataDir(input.dataDir)
+  const webAssets = input.webRoot === undefined ? undefined : loadWebAssets(requireAbsoluteDataDir(input.webRoot))
 
   // Factory preflight: require current application modules + command receipts; never initialize.
   applicationRepositories(store.db)
@@ -475,11 +478,20 @@ export function createApiServer(options: CreateApiServerOptions): FastifyInstanc
     const host = singleHeader(request.headers.host)
     const origin = singleHeader(request.headers.origin)
     try {
-      assertLocalRequest({ host, origin, allowedOrigins })
+      // Port 0 is useful for owned browser tests. Derive its same-origin allowlist
+      // from the bound socket, never from the incoming Host/forwarded headers.
+      const socket = webAssets && allowedOrigins.length === 0 ? app.server.address() : null
+      const requestOrigins = socket && typeof socket === 'object'
+        ? [`http://127.0.0.1:${socket.port}`, `http://localhost:${socket.port}`]
+        : allowedOrigins
+      assertLocalRequest({ host, origin, allowedOrigins: requestOrigins })
     } catch (error) {
       if (error instanceof ApiAuthError) throw error
       failRequest(403, 'INVALID_HOST', 'Invalid host')
     }
+
+    // Only exact snapshotted GET/HEAD build assets are public; Host/Origin checks still apply.
+    if (webAssets?.isPublicRequest(request.method, request.url)) return
 
     const authorization = singleHeader(request.headers.authorization)
     let principal: { ownerId: string; workspaceId: string }
@@ -514,6 +526,8 @@ export function createApiServer(options: CreateApiServerOptions): FastifyInstanc
     const mapped = mapUnknownError(error)
     sendError(reply, mapped.statusCode, mapped.code, mapped.message)
   })
+
+  webAssets?.register(app)
 
   app.get('/api/v1/health', {
     schema: {

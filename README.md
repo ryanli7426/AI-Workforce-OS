@@ -1,6 +1,6 @@
 # AI Workforce OS
 
-本地优先、由人治理的 AI 员工组织与工作管理平台。当前提供独立 Core/SQLite、持久 Runner、前台控制器、员工/项目配置和任务创建/审批/隔离执行/验证/验收 CLI。真实本地 Claude 已通过控制器完成隔离修改与独立内容检查；认证本地 HTTP API 已验收；Web、OS 后台服务与真实钉钉业务接入仍在实施。
+本地优先、由人治理的 AI 员工组织与工作管理平台。当前提供独立 Core/SQLite、持久 Runner、前台控制器、员工/项目配置和任务创建/审批/隔离执行/验证/验收 CLI。真实本地 Claude 已通过控制器完成隔离修改与独立内容检查；认证本地 HTTP API 与第一批可操作 Web 已交付；OS 后台服务、真实钉钉业务接入及完整产品功能继续实施。
 
 ## 开发
 
@@ -8,6 +8,7 @@
 
 ```sh
 pnpm install
+pnpm exec playwright install chromium
 pnpm check
 node dist/cli/index.js --help
 node dist/cli/index.js init --data-dir .workforce
@@ -24,6 +25,7 @@ node dist/cli/index.js doctor
 - [UX 规格](docs/product/PRODUCT_UX_SPEC.md)
 - [架构设计](docs/AI_WORKFORCE_OS_ARCHITECTURE.md)
 - [技术栈](docs/TECH_STACK.md)
+- [Web 启动与页面能力](docs/WEB_OPERATIONS.md)
 - [首批交付与后续工作](docs/BOOTSTRAP.md)
 - [完整产品交付跟踪](docs/DELIVERY_TRACKER.md)
 - [多 Agent 实施看板](docs/AGENT_TASK_BOARD.md)

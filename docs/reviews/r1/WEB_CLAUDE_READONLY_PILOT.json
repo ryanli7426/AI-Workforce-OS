@@ -1,0 +1,14 @@
+{
+  "verifiedAt": "2026-11-04T23:14:55.103Z",
+  "transport": "production Web build + compiled api-serve + actual Chromium",
+  "taskState": "REVIEW",
+  "verification": "passed",
+  "executionState": "SUCCEEDED",
+  "executionDetailVisible": true,
+  "scopedLogsVisible": true,
+  "executionCountUnchanged": true,
+  "noRuntimeLaunched": true,
+  "noTaskMutation": true,
+  "noHumanAcceptanceSubmitted": true,
+  "credentialAbsentFromOutput": true
+}

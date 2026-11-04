@@ -50,7 +50,7 @@ Commands:
   controller-status      Query controller ownership and process liveness
   logs ID                Read scoped execution logs (--tail-bytes N, --execution-id ID)
   api-init               Create private local API credentials (prints path only)
-  api-serve              Run authenticated loopback HTTP API (--port N, --allow-origin URL)
+  api-serve              Run authenticated loopback HTTP API (--port N, --allow-origin URL, --web-root DIR)
 
 Options:
   --data-dir DIR         Data directory (default: .workforce in the current directory)

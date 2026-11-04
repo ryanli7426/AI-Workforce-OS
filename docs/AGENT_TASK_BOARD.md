@@ -84,3 +84,16 @@ Cursor 累计完成 **25路独立任务**；同一任务的review不重复计数
 | workforce-cursor-api-cli-20261105 | api-init/api-serve与真实进程退出 | 已返修、父 Agent集成验收 |
 
 完整633测试、类型/构建/smoke/依赖扫描通过；真实TCP验收见 reviews/r1/HTTP_API_PILOT.json。回执见 reviews/r1。Web下一批推进，不把API当作页面完成。
+
+## 第六批：可操作 Web（集成验收）
+
+Cursor 累计 **29路独立任务**：本批3路实现加1路独立审查，既有任务的返修仍不重复计数。
+
+| 工作区 | 任务 | 实际交付 |
+| --- | --- | --- |
+| workforce-cursor-web-api-20261105 | 同源类型化客户端、凭证闭包、超时/取消/流式上限 | 26项测试，父 Agent纠正DTO字段、TS收窄及完整请求返回 |
+| workforce-cursor-web-tasks-20261105 | Task/审批视图、显式确认/版本/回执、筛选与分页 | 10项测试；返修关联链接、UNKNOWN重试与操作进行中保护 |
+| workforce-cursor-web-overview-20261105 | 概览、员工、项目与执行详情 | 11项测试；父 Agent完成布局及实际Claude数据验收 |
+| main只读审查 | 父 Agent的登录/同源部署/静态边界与E2E | 报告与逐项处置见 reviews/r1/WEB_ACCEPTANCE.md |
+
+父 Agent拥有登录内存会话、路由/主题/布局、静态资源服务、CLI接线和真实浏览器测试；没有让子任务自行接受生产Task。浏览器完成创建/批准/取消的SQLite闭环，另只读展示原真实Claude的REVIEW/验证/执行日志。门禁及未完成范围见 WEB_OPERATIONS.md 与交付跟踪。

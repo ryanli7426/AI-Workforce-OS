@@ -63,3 +63,11 @@
 - 完整 `pnpm check`：42文件、633测试通过，无跳过；类型、构建、独立Core/SQLite与编译后CLI smoke、依赖扫描全部通过。随后进程测试清理命令增加完整参数匹配，15项目标测试再次通过。
 - 真实编译后 api-serve TCP：401未认证、200健康、403非法Origin；创建201、相同请求重放、幂等冲突409、版本冲突409、批准/取消均通过，API退出0且输出不含token。原真实Claude任务保持REVIEW和验证passed，没有增加Execution。证据见 reviews/r1/HTTP_API_PILOT.json。
 - API是产品入口的一部分；Web、异步验证API、员工/项目写API、SSE和真实钉钉业务尚未交付，完整产品目标继续推进。
+
+## 2026-11-05：可操作 Web 第一批
+
+- React19.3.1/Vite8.3.5/Query5.105.3独立前端已接认证API。页面覆盖概览、Task列表/创建/详情/审批验收、员工/项目只读及执行详情/日志；其余产品模块不以占位菜单声称完成。
+- Cursor Auto累计29路独立任务（本批3实现+1独立审查），父 Agent完成登录/路由/主题/部署、返修、真实浏览器与主线门禁。
+- 最新门禁为43文件638项后端测试、4文件50项前端测试、1项真实Chromium端到端测试；同时检查前后端类型、构建、独立Core/SQLite smoke、编译后CLI与依赖。
+- 浏览器实际创建Task→批准→取消，SQLite审计保留且Execution为0；真实Claude历史交付只读显示REVIEW/验证passed/SUCCEEDED和作用域日志，未提交人工验收。
+- 具体验收与独立审查处置见 reviews/r1/WEB_ACCEPTANCE.md，启动见 WEB_OPERATIONS.md。SSE、异步验证API、员工/项目写操作、完整19模块、多用户和真实IM仍未完成。
