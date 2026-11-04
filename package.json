@@ -1,0 +1,29 @@
+{
+  "name": "ai-workforce-os",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first, human-governed AI workforce orchestration platform",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": "^22.19.0 || ^24.0.0"
+  },
+  "packageManager": "pnpm@11.7.0",
+  "bin": {
+    "workforce": "./dist/cli/index.js"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run",
+    "build": "tsc -p tsconfig.json",
+    "smoke": "node scripts/smoke.mjs",
+    "check:dependencies": "node scripts/check-dependencies.mjs",
+    "check": "pnpm typecheck && pnpm test && pnpm build && pnpm smoke && pnpm check:dependencies",
+    "workforce": "node dist/cli/index.js"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.0",
+    "typescript": "6.0.3",
+    "vitest": "4.1.8"
+  }
+}

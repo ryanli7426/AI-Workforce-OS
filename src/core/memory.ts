@@ -1,0 +1,71 @@
+/** In-memory repository implementation for testing and ephemeral engine instances. */
+import type { IssueIdentity, TaskAudit } from './lifecycle-model.ts'
+import { latestAssignment, type Decision, type Thread, type Ticket, type Trigger, type TriggerDisposition } from './model.ts'
+import type { DomainEvent, Repositories } from './ports.ts'
+
+const clone = <T>(value: T): T => structuredClone(value)
+/**
+ * In-memory implementation of the Repositories port backed by cloned Map entries so caller mutations do not affect stored state.
+ * Provides snapshot-based atomic rollback and matches the ordering semantics of the SQLite store for Engine tests.
+ */
+export class MemoryRepositories implements Repositories {
+  private readonly triggerRows = new Map<string, Trigger>()
+  private readonly dispositions = new Map<string, TriggerDisposition>()
+  private readonly threadRows = new Map<string, Thread>()
+  private readonly ticketRows = new Map<string, Ticket>()
+  private readonly domainRows = new Map<number, DomainEvent>()
+  private readonly issueRows = new Map<string, string>()
+  private readonly auditRows = new Map<string, TaskAudit>()
+  readonly workflow = {
+    recordDomain: (event: DomainEvent): void => { this.domainRows.set(this.domainRows.size, clone(event)) },
+    domainEvents: (): DomainEvent[] => [...this.domainRows.values()].map(clone),
+    findIssue: (identity: IssueIdentity): string | undefined => this.issueRows.get(JSON.stringify([identity.source, identity.issueId])),
+    bindIssue: (identity: IssueIdentity, ticketId: string): void => {
+      const key = JSON.stringify([identity.source, identity.issueId])
+      const existing = this.issueRows.get(key)
+      if ((existing && existing !== ticketId) || [...this.issueRows].some(([other, id]) => id === ticketId && other !== key))
+        throw new Error('Source issue is already bound')
+      this.issueRows.set(key, ticketId)
+    },
+    append: (event: TaskAudit): void => {
+      if (this.auditRows.has(event.id)) throw new Error('Audit event already exists')
+      this.auditRows.set(event.id, clone(event))
+    },
+    history: (ticketId: string): TaskAudit[] => [...this.auditRows.values()].filter(item => item.ticketId === ticketId).map(clone),
+  }
+  private readonly decisionRows = new Map<string, Decision>()
+  atomic<T>(work: () => T): T {
+    const maps: Map<string | number, unknown>[] = [this.triggerRows, this.dispositions, this.threadRows, this.ticketRows, this.decisionRows, this.issueRows, this.auditRows, this.domainRows]
+    const snapshot = maps.map(map => new Map(map))
+    try { return work() }
+    catch (error) {
+      maps.forEach((map, index) => { map.clear(); for (const [id, value] of snapshot[index]!) map.set(id, value) })
+      throw error
+    }
+  }
+  readonly triggers = {
+    get: (id: string) => clone(this.triggerRows.get(id)),
+    save: (trigger: Trigger) => { this.triggerRows.set(trigger.id, clone(trigger)) },
+    disposition: (id: string) => clone(this.dispositions.get(id)),
+    saveDisposition: (id: string, value: TriggerDisposition) => { this.dispositions.set(id, clone(value)) },
+  }
+  readonly threads = {
+    get: (key: string) => clone(this.threadRows.get(key)),
+    save: (thread: Thread) => { this.threadRows.set(thread.key, clone(thread)) },
+    list: () => [...this.threadRows.values()].map(clone),
+    active: () => this.threads.list().filter(thread => thread.pending.length > 0 || thread.evaluating !== undefined),
+  }
+  readonly tickets = {
+    get: (id: string) => clone(this.ticketRows.get(id)),
+    save: (ticket: Ticket) => { this.ticketRows.set(ticket.id, clone(ticket)) },
+    /** Newest first, matching the SQLite Store's order. */
+    list: () => [...this.ticketRows.values()].reverse().map(clone),
+    open: () => this.tickets.list().filter(ticket => !ticket.ended),
+    active: () => this.tickets.list().filter(ticket => ticket.undelivered.length > 0 || ['pending', 'running'].includes(latestAssignment(ticket)?.state ?? '')),
+  }
+  readonly decisions = {
+    get: (id: string) => clone(this.decisionRows.get(id)),
+    save: (decision: Decision) => { this.decisionRows.set(decision.id, clone(decision)) },
+    byThread: (key: string) => [...this.decisionRows.values()].filter(decision => decision.threadKey === key).map(clone),
+  }
+}

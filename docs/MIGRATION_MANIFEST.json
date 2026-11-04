@@ -1,0 +1,129 @@
+{
+  "upstream": "https://github.com/deepseek-ai/dsh-superagent-prototype",
+  "baseCommit": "8c32a9dc5d72c033816c6a8110b37f40cf94fba4",
+  "source": "Local audited Core/SQLite implementation; includes uncommitted LAO changes, identified by per-file hashes.",
+  "files": [
+    {
+      "path": "src/core/assignments.ts",
+      "sha256": "e44c8c029fecfdc734370bcdb2a87efa4e81dc7f3f060b6a64b09fb4ba770a93"
+    },
+    {
+      "path": "src/core/engine.ts",
+      "sha256": "3182a84b40a0546066cec5fdf6e49cccb5c405c76459970460d15a4ab7cbea32"
+    },
+    {
+      "path": "src/core/errors.ts",
+      "sha256": "aa7532a2d1f8c443608683ef1231bf3d81b842f67a87d9b77742b5c76d515009"
+    },
+    {
+      "path": "src/core/evals.ts",
+      "sha256": "471192de04a6622716d52fe74241d63e941581ffb07efeae05b4281d64c88739",
+      "currentSha256": "b42467774cd0a4d06f9d88925984f468149061e93d5c5f68ed78316e7e463048",
+      "modificationReason": "B0 review fixes: observed source revision/closure, database read-before-write preflight, and regression coverage."
+    },
+    {
+      "path": "src/core/ids.ts",
+      "sha256": "bc4bc6fd43ea1377087ff2815706c57f0200666aeb4a7711a40489c377f141ab"
+    },
+    {
+      "path": "src/core/index.ts",
+      "sha256": "6b18cb5dfb7762099e2127418e2f54ca06c14e400e1ba7a21bcb1b0518ad1736"
+    },
+    {
+      "path": "src/core/intake.ts",
+      "sha256": "323aadefea69436ba23ed2de3bdbaad673d61915be9e239f3233ecf551a74179"
+    },
+    {
+      "path": "src/core/lifecycle-model.ts",
+      "sha256": "817fa64b68bc91862a601a10db5ac239fb6600dd7e7f3e73615f64f5d85abb7f",
+      "currentSha256": "1b2b0adf876b726d7144a12bfea12dc8727f3a10b265613478b1c898dfd431ef",
+      "modificationReason": "B0 review fixes: observed source revision/closure, database read-before-write preflight, and regression coverage."
+    },
+    {
+      "path": "src/core/lifecycle.ts",
+      "sha256": "6a131ff3e0005db02639b90c0012d5565c7a3b1b657a6b20a82c72238b8c5f12",
+      "currentSha256": "5698be777962b205a9e5f7def9330f76a024639436dc3536a67ff027029da0be",
+      "modificationReason": "B0 review fixes: observed source revision/closure, database read-before-write preflight, and regression coverage."
+    },
+    {
+      "path": "src/core/local.ts",
+      "sha256": "87ad20d77df6161b9bbe605a7ea2765bc09b83c9bb2dfcd64d2bb774311e2d8e"
+    },
+    {
+      "path": "src/core/memory.ts",
+      "sha256": "8d126f1bf40a3edcd0a2b22c780f8b9ac093e6dc76c97220116cba2293fcff14"
+    },
+    {
+      "path": "src/core/model.ts",
+      "sha256": "3dbcc7e67f4324af3f68a6a409d5b797438db07b1a41dab0156764ba83a5e4a3"
+    },
+    {
+      "path": "src/core/part.ts",
+      "sha256": "2cc3ba3f3a10bdd178942190ae9ad0eece30ea3f3ad309aec82614c6e41e0c11"
+    },
+    {
+      "path": "src/core/ports.ts",
+      "sha256": "06aa020358d90ee25673b4f82a5e2d688d4080a5fa017e77c24058ffdaebe563"
+    },
+    {
+      "path": "src/core/reasons.ts",
+      "sha256": "dc29e0c3c52e4ffd6e8f27a618cbe704a83fdbd9c5a1b99a1e0c4184d5c33af4"
+    },
+    {
+      "path": "src/core/replies.ts",
+      "sha256": "5a8821a1b9d951d2255709543e0be762c6d3204bca07a77ff17c7bfe82ba66f4"
+    },
+    {
+      "path": "src/core/stage.ts",
+      "sha256": "e39126ca35d9a2bb1065ed8784b8b4a561799853d52071d4f59bafb0fd0f0439"
+    },
+    {
+      "path": "src/core/tickets.ts",
+      "sha256": "8f7aa0feb61cf5ec5388425bc2e702e4a2886378557ff53152e834d87677870c"
+    },
+    {
+      "path": "src/storage/keys.ts",
+      "sha256": "2db73e8ac619b55442c88e6f71f932551879d392dd315460be7f22324863c73b",
+      "currentSha256": "22dbd135f1167b229ef03ae474045a3e0673dd0f17be0aa59af1795bdea16279",
+      "modificationReason": "Remove an extra trailing blank line for the new repository whitespace gate; original source hash retained."
+    },
+    {
+      "path": "src/storage/sqlite.ts",
+      "sha256": "7b4ba88c04e35f140e416ab8e28a5a787edda648f7b9244937df9465d2a32b5e"
+    },
+    {
+      "path": "src/storage/store.ts",
+      "sha256": "f63312fbbf7e6647df76b3da01b3cc93fd5601aa1e640b7b0cb5c94b18e0fb2f",
+      "currentSha256": "e1f19be8e727ecb605b9519e50670a9849ddf60f4131b9adeb11e0e57ca2910a",
+      "modificationReason": "B0 review fixes: observed source revision/closure, database read-before-write preflight, and regression coverage."
+    },
+    {
+      "path": "tests/core-engine.spec.ts",
+      "sha256": "e29358c139a2dbb1a2877e980e043f34cf39bca1905fb10ee14e0b4866bc1a6b"
+    },
+    {
+      "path": "tests/stage.spec.ts",
+      "sha256": "3df130eae87d70643f0c924caf66fbca8cb27ced50467e0c7283dee0a39436be"
+    },
+    {
+      "path": "tests/lao-core.spec.ts",
+      "sha256": "8eccf0230ec28a99f6fceada9627596a52425ecbcd87ff5ba26777d3742f6af5",
+      "currentSha256": "a66873e0081817d5aa22ee542d3ace856675f279c7aa1fd27eaeb9b6f3a8e6a2",
+      "modificationReason": "B0 review fixes: observed source revision/closure, database read-before-write preflight, and regression coverage."
+    },
+    {
+      "path": "tests/lao-storage.spec.ts",
+      "sha256": "665a13ea1ebf69ac2be9cb1e3f6006b3c4f620175722ff5d32e4767f67f2ae23",
+      "currentSha256": "cbb9fbcaf4d524850ff21f6610e1b46369af20a4459480d49b355332a17a9540",
+      "modificationReason": "B0 review fixes: observed source revision/closure, database read-before-write preflight, and regression coverage."
+    },
+    {
+      "path": "tests/fixtures/lao.ts",
+      "sha256": "54f9b00fa4d3d90518127dc69ffa6d505b796a462c5d09b520030c7ff027a58a"
+    },
+    {
+      "path": "LICENSE",
+      "sha256": "6d66f91815b720e18cfb2b3552043a0359236aec9a1a6917787900546f6ce550"
+    }
+  ]
+}
