@@ -54,3 +54,15 @@
 四路均明确使用 `cursor-agent --model auto`，隔离 Git Worktree，禁止自行提交、跨任务改文件及真实模型调用。父 Agent 负责跨模块接线、审查、修复、门禁和用户授权的提交推送。累计数与当前并行数分开记录。
 
 第三批集成后 `pnpm check`：**32 文件、506 项测试通过**，无跳过测试；类型检查、构建、独立 smoke、编译后 CLI smoke 和依赖扫描均通过。交付回执与 review 回执分别保存于 reviews/r0a，不把实施者的初稿报告视为最终验收。
+
+## 第四批：本地可运营能力（2026-11-05）
+
+已启动3路 Cursor Auto，累计 Cursor **20路**独立任务。第三批已完成，不能把历史累计数当成当前并发数。
+
+| 独立 Worktree | 任务 | 状态 |
+| --- | --- | --- |
+| workforce-cursor-control-loop-20261105 | 串行长期控制循环、退出与错误退避、结构化事件 | Cursor Auto 实施中 |
+| workforce-cursor-controller-lease-20261105 | 单控制平面占用、私有 stop 通道、死进程恢复与替换 fencing | Cursor Auto 实施中 |
+| workforce-cursor-execution-logs-20261105 | 只读执行日志、范围授权、脱敏与有界尾部读取 | Cursor Auto 实施中 |
+
+共享契约见 tasks/CURSOR_OPERATIONS.md；每路只拥有一个实现文件及其测试，父 Agent 负责 CLI 接线与组合验收。已验收实现提交 b956cf6 已推送 origin/main；本批尚未验收，不宣称后台服务已可用。
