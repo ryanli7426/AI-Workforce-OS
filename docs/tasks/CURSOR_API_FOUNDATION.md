@@ -1,0 +1,27 @@
+# Cursor Auto: authenticated API foundation
+
+Read AGENTS.md and actual code. Work directly, own only your section's two files. No installs, commits, pushes, nested agents, actual external model/service calls or dependency replacement. Parent owns application schema hook, CLI routing, HTTP transport and integration. This is a product API foundation; not permission to claim Web/IM complete.
+
+## api-auth
+
+Own `src/api/auth.ts`, `tests/api-auth.spec.ts`. Node builtins only.
+Export `createLocalApiCredentials(dataDir:string):{path:string,createdAt:string}`: explicit exclusive creation of private `api-auth.json` in existing self-owned0700 dataDir, schemaVersion1, random32bytehex token, createdAt. No overwrite, no secret return/log, fsync, no symlink components except Darwin /var,/tmp. FD-based chmod/identity fencing and cleanup only own inode. Missing/corrupt/shared files fail closed. Never create DB/dataDir or alter HOME/PATH.
+Export `createOwnerAuthenticator({token:string,ownerId:string,workspaceId?:string})` returning `{authenticate(header:unknown):{ownerId:string,workspaceId:string}}`; immutable config snapshot, safe IDs, token exactly64hex, single strict Bearer header, constant-time comparison of fixed-size digests, wrong/array/oversized/malformed header fail with typed `ApiAuthError` codes UNAUTHORIZED/INVALID_AUTH_CONFIG, no echoed token/header. No public token property or accidental token JSON serialization.
+Export `loadLocalApiAuthenticator({dataDir,ownerId,workspaceId?})` reads bounded4KiB regular0600 current-owner credential file only, validates version/keys/timestamps, returns same authenticator without exposing token. It never creates or migrates credentials.
+Export `assertLocalRequest({host:unknown,origin:unknown,allowedOrigins:readonly string[]})`: Host must be plain valid loopback localhost/127.0.0.1/[::1] with optional valid port, no userinfo/path/query/fragment; reject DNS-rebinding host names and duplicate/array headers. Origin absent is allowed for authenticated CLI; present must exactly match one trusted, validated loopback origin (HTTP/HTTPS, no path beyond /, no credentials/wildcard/null). Throw typed FORBIDDEN_ORIGIN/INVALID_HOST, no untrusted values echoed. No server/network here.
+Tests explicit create/load collision/byte preservation, permissions, symlinks, missing roots, malformed schema, token non-disclosure, correct/wrong/malformed/duplicate auth, config mutation, malicious origin/host and accepted exact same-origin/CLI cases. Do not authenticate user payload actor fields.
+
+## task-command-receipts
+
+Own `src/application/task-commands.ts`, `tests/task-command-receipts.spec.ts`. Exports `initializeCommandSchema(db:DatabaseSync):void` (explicit only) and `LocalTaskCommands({store:LocalStore,ownerId:string,workspaceId?:string,rules:readonly Rule[]})` with `execute(key:string,command:LocalTaskCommand):{ticket:Ticket,replayed:boolean}`. Constructor requires initialized command-schema1, never creates tables; initializer requires existing current main schema and checks incompatible versions before DDL. Parent will add it to initializeApplicationSchema atomically.
+
+Command union:
+- `{kind:'create',input:CreateTaskInput}` (actual LocalTaskService fields projectId/issueId/title/description/taskType/priority)
+- `{kind:'approve'|'reject'|'cancel'|'retry',ticketId:string,expectedVersion:number,reason:string}`
+- `{kind:'review',ticketId:string,expectedVersion:number,executionId:string,artifactRevision:string,approved:boolean,reason:string}`
+
+Strict exact fields/types, safe key1..128 ASCII id, cloned config/input, no coercion or actor flags; stable `TaskCommandError.code`: INVALID_COMMAND, NOT_FOUND, VERSION_CONFLICT, IDEMPOTENCY_CONFLICT, STATE_CONFLICT. Unknown keys/errors cannot echo credential-shaped content. Trusted Owner context creates LocalTaskService internally against same store. Same workspace/Owner may administer differently-owned Projects (project business owner is not a permission boundary); use actual Task service scopes.
+
+Inside ONE store.atomic transaction: lookup receipt by workspace+owner+key; canonical SHA256 command payload; same hash replay returns original committed Ticket snapshot/replayedtrue without another mutation/audit; different hash conflict. For new non-create require current owned Ticket and exact lifecycle.version, then invoke synchronous Task service command and insert response receipt in same transaction. Receipt table stores only scope/key/hash/result JSON/timestamp, no auth token/environment. No external process/network/file access or Promise callbacks inside transaction. Source issue idempotency remains separate from HTTP key replay. A failed transaction leaves neither receipt nor partial Task/audit/launch/stop intent. Version check must not be bypassed by stale caller; genuine same-key replay intentionally returns original response after later state changes.
+
+No verify-state shortcut, Runtime start, employee/project create wrapping (Project validation uses Git), auto retry or auto DONE. Verification remains actual verifier + explicit governance. Tests real SQLite/application modules, receipt schema explicit setup, create/approve replay, changed-key-payload conflict, stale versions, foreign Owner masking, failure rollback of receipt+Task+audit+intents, immutable response/config, unsupported schema no mutation. Do not mutate existing schema hooks/tests; parent handles integration.
