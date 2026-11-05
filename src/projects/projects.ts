@@ -345,42 +345,83 @@ export function initializeProjectSchema(db: DatabaseSync): void {
   })
 }
 
+/** Opaque same-instance capability from prepareCreate; only commitCreate on that repository accepts it. */
+export type PreparedProjectCreate = {
+  readonly __brand: 'PreparedProjectCreate'
+}
+
+type PreparedProjectEntry = {
+  repository: ProjectRepository
+  input: ProjectCreateInput
+}
+
+const preparedProjectCreates = new WeakMap<PreparedProjectCreate, PreparedProjectEntry>()
+
+function createPreparedProjectToken(): PreparedProjectCreate {
+  return Object.freeze({ __brand: 'PreparedProjectCreate' as const })
+}
+
 /** Durable project configuration repository. Does not authorize callers or stop executions. */
 export class ProjectRepository {
   constructor(private readonly db: DatabaseSync) {}
 
-  create(value: ProjectCreateInput): Project {
-    // Path/Git checks run in validateCreate before the write transaction (no external CLI inside tx).
+  /**
+   * Validates paths/Git outside any DB transaction and returns an opaque capability for commitCreate.
+   * Must not run while db.isTransaction is true.
+   */
+  prepareCreate(value: ProjectCreateInput): PreparedProjectCreate {
+    if (this.db.isTransaction) {
+      throw new Error('Project path validation cannot run inside a transaction')
+    }
     const input = validateCreate(value)
+    const token = createPreparedProjectToken()
+    preparedProjectCreates.set(token, { repository: this, input })
+    return token
+  }
+
+  /** Commits a prepareCreate capability without filesystem/Git IO. Single-use; rejects forged tokens. */
+  commitCreate(prepared: PreparedProjectCreate): Project {
+    const entry = preparedProjectCreates.get(prepared)
+    if (!entry || entry.repository !== this) {
+      throw new Error('Invalid prepared project create')
+    }
+    preparedProjectCreates.delete(prepared)
     requireCurrentSchema(this.db)
-    return savepoint(this.db, 'project_create', () => {
-      const project: Project = {
-        id: input.id,
-        workspaceId: input.workspaceId,
-        name: input.name,
-        ownerId: input.ownerId,
-        repositoryPath: input.repositoryPath,
-        worktreeRoot: input.worktreeRoot,
-        allowedTaskTypes: [...input.allowedTaskTypes],
-        archived: false,
-        version: 1,
-      }
-      try {
-        this.db.prepare(`INSERT INTO project
-          (id, workspace_id, name, version, archived, repository_path, worktree_root, config_json)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
-          project.id, project.workspaceId, project.name, project.version, 0,
-          project.repositoryPath, project.worktreeRoot, JSON.stringify(project),
-        )
-        this.db.prepare('INSERT INTO project_snapshot (id, version, config_json) VALUES (?, ?, ?)')
-          .run(project.id, project.version, JSON.stringify(project))
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        if (/UNIQUE/i.test(message)) throw new Error('Project id or workspace name already exists')
-        throw error
-      }
-      return cloneProject(project)
-    })
+    return savepoint(this.db, 'project_create', () => this.insertCreated(entry.input))
+  }
+
+  create(value: ProjectCreateInput): Project {
+    // Path/Git checks run in prepareCreate before the write transaction (no external CLI inside tx).
+    return this.commitCreate(this.prepareCreate(value))
+  }
+
+  private insertCreated(input: ProjectCreateInput): Project {
+    const project: Project = {
+      id: input.id,
+      workspaceId: input.workspaceId,
+      name: input.name,
+      ownerId: input.ownerId,
+      repositoryPath: input.repositoryPath,
+      worktreeRoot: input.worktreeRoot,
+      allowedTaskTypes: [...input.allowedTaskTypes],
+      archived: false,
+      version: 1,
+    }
+    try {
+      this.db.prepare(`INSERT INTO project
+        (id, workspace_id, name, version, archived, repository_path, worktree_root, config_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        project.id, project.workspaceId, project.name, project.version, 0,
+        project.repositoryPath, project.worktreeRoot, JSON.stringify(project),
+      )
+      this.db.prepare('INSERT INTO project_snapshot (id, version, config_json) VALUES (?, ?, ?)')
+        .run(project.id, project.version, JSON.stringify(project))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (/UNIQUE/i.test(message)) throw new Error('Project id or workspace name already exists')
+      throw error
+    }
+    return cloneProject(project)
   }
 
   get(id: string): Project | undefined {

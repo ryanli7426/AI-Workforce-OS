@@ -1,0 +1,43 @@
+# Durable asynchronous verification — next implementation contract
+
+User objective remains full AI Workforce OS. Current accepted Core/Runner/Web/config management are foundations. This feature must let Owner request verification from Web, return202 immediately, observe progress across API/controller restart, authenticate result evidence, and explicitly accept the exact artifact afterward. A synchronous `LocalVerifier.verify` HTTP handler does not meet it.
+
+Read AGENTS.md and actual `local-checks`, Runner client/worker/protocol, execution repository/service, ArtifactStore, Task/Core lifecycle, controller and command receipts. Codex gpt-5.6-sol independently reviewed this path; raw report in reviews/r1b. Parent decides architecture and reviews implementation. Existing Task CLI stays operable until replacement passes, with documented recovery limits; do not invent successful async routes.
+
+## Decisions
+
+- Dedicated verification aggregate/store and detached worker; do not add verification fake Assignment/Execution rows or tie it to an HTTP request lifetime.
+- Reuse ArtifactStore validation and private Runner protocol patterns; extract process/check primitives with confirmed termination and abort semantics. Current LocalVerifier's failure/unknown conflation must be corrected in this path.
+- Authenticated Owner enqueues immutable request containing Task version, policy, execution, artifact ID/revision and trusted plan revision/digest. HTTP bodies select registered plans, not arbitrary executable commands or output state. Plan registration is explicit local configuration.
+- Durable reserve+receipt+audit before any launch; beginLaunch atomically claims QUEUED once before IO. Unknown launch outcome keeps occupancy, never automatic retry with same/new ID.
+- Worker request/state/ordered events/report authenticate and bind job/worker identity. Check output bounded/redacted. Report byte digest persisted with audit; job report, Task evidence and application outcome committed atomically.
+- Completed check failure differs from verifier infrastructure failure and uncertain ownership. Any uncertainty retains UNKNOWN occupancy until actual terminal proof.
+- Superseded result is an application outcome **only after confirmed terminal worker evidence**. A changed Task must not release a still-running verification job. This refines the independent review's broad SUPERSEDED transition.
+- Waiver is a separate explicit Owner command; workers can report passed/failed only. Verification does not mark Task DONE.
+- Core exact-artifact mapping can initially use existing deterministic `artifact-${executionId}` plus ArtifactStore verified identity, without forcing all old evidence records to add a fabricated artifactId. Any richer evidence fields must be additive and validated, preserve old provenance.
+
+## STORAGE first ownership (Cursor Auto)
+
+ONLY `src/verification/model.ts`, `src/storage/verification-jobs.ts`, `tests/verification-jobs.spec.ts`. No edits to other files, installs/commits/pushes/nested agents/Runtime/IM/model calls/credentials. Worktree isolated; parent composes initializer only after review. Do not call initialize in constructor/query.
+
+Export from model:
+- VERIFICATION_JOB_STATES = ['QUEUED','STARTING','RUNNING','STOPPING','COMPLETED','FAILED','CANCELLED','UNKNOWN'] as const; VerificationJobState.
+- VerificationJobRequest {verificationId,workspaceId,ownerId,ticketId,expectedTaskVersion:number,policyVersion,executionId,artifactId,artifactRevision,plan:{id,revision,checks:VerificationCheckRequest[]},reason,createdAt}. Import check type only from local-checks. IDs safe; sha256 artifactRevision; no env or credentials/authorized fields. Bounded plan1..32 checks, max1hour per check, max64KiB args/check; abs executable string (shape validation only, no FS), total job request<=128KiB. Fully clone exact shape.
+- VerificationJob {request:VerificationJobRequest;status:VerificationJobState;version:number;lastSequence:number;runnerId?:string;runnerPid?:number;processId?:number;outcome?:'passed'|'failed';reportSha256?:string;application?:'pending'|'applied'|'superseded';cancelRequested?:{actorId:string;reason:string;at:string};createdAt:string;updatedAt:string;finishedAt?:string;failureCode?:string}.
+- VerificationJobEvent {verificationId:string;sequence:number;runnerId:string;runnerPid:number;status:Exclude<VerificationJobState,'QUEUED'|'UNKNOWN'>;at:string;processId?:number;outcome?:'passed'|'failed';reportSha256?:string;terminalConfirmed?:boolean;failureCode?:string}. terminalConfirmed is private validated worker evidence, never public writable HTTP DTO.
+
+Storage exports VERIFICATION_SCHEMA_KEY='verification-schema', VERIFICATION_SCHEMA_VERSION=1, initializeVerificationSchema(db), requireVerificationSchema(db), VerificationJobRepository(db).
+Methods:
+- reserve(request):VerificationJob atomic, QUEUED version1 seq0, active ticket uniqueness across QUEUED/STARTING/RUNNING/STOPPING/UNKNOWN. Cannot reuse verificationId even terminal. No arbitrary args interpretation or path validation IO.
+- get(id):VerificationJob|undefined cloned; list({ownerId,workspaceId,statuses?:readonly VerificationJobState[],limit?:number,beforeRowid?:number,ticketId?:string}):{items:VerificationJob[],nextCursor?:number}, scope/filter before limit bounded1..200 default50.
+- beginLaunch(id):VerificationJob only QUEUED, sets STARTING version+1; cannot claim again, no expired lease auto requeue. Audit launch claimed.
+- apply(event):VerificationJob sequence contiguous, runner identity/PID pinned on first event, never later changed; duplicate sequence only exact same event no extra audit/version; differing duplicate conflict; validate transitions terminal confirmed for COMPLETED/FAILED/CANCELLED; COMPLETED requires valid digest+outcome, others no fake check success; UNKNOWN can recover only same authenticated runner event, terminal immutable; new processId only allowed from undefined first bound then stable except documented check changes need explicit checkId event future revision. Keep minimal current single process identity, no ignoring mismatch. No external calls/PID signaling.
+- markUnknown(id,reasonCode):VerificationJob only launched active statuses; no runner seq consumed, keeps occupancy/runner identity. reasonCode static safe bounded code, not arbitrary error text.
+- requestCancel(id,{expectedVersion,actorId,reason,at}):VerificationJob version checked, actor must equal ownerId. QUEUED can atomically CANCELLED without spawn, else persist intent and STOPPING only when appropriate; UNKNOWN stays UNKNOWN+intent; terminal rejects. Cancellation request itself cannot release launched occupancy.
+- recordApplication(id,{expectedVersion,application:'applied'|'superseded',reportSha256,at}):VerificationJob only COMPLETED matching digest, never changes Task directly. Same transaction with Core application provided by parent coordinator. Idempotent exact replay only; cannot flip applied/superseded, wrong digest/version rejects. Final audit.
+- history(id): bounded100 immutable entries {id,verificationId,action,from?,to?,at,actorId?,reasonCode?,sequence?}. No request credentials/log dumps.
+- Receipt primitives in same storage file: getReceipt({workspaceId,ownerId,key}), insertReceipt({workspaceId,ownerId,key,commandHash,verificationId,resultJson,at}), strict safe key/hash; parent uses same transaction as reserve/cancel. Validate stored referenced job owner/workspace, never return foreign reference. No command execution in storage.
+
+Implementation may use explicit scalar identity/scope/status/version columns plus JSON request/record, mirrored consistency validation, parameterized SQL, partial active uniqueness, separate ordered events/audits/receipts. SQL/schema/storage remains independent from application imports. Metadata future/unversioned/incomplete fail closed. Index real columns (do not index hidden rowid directly). Schema installation preflights before mutation and atomic savepoint. Emit no claims of async product completion from repository alone.
+
+Tests real temp SQLite: no implicit init, future/unversioned/corrupt schema, active occupancy incl UNKNOWN, terminal occupancy release only proof, original request mutation defense, scoped pagination hiding foreign newer rows, strict DTO validation including secret fields (messages static no values), sequence/gap/identity/duplicate conflicts, unknown recovery same runner, cancel race/version/cancel-confirmation, terminal immutability, application result binding, audit rollback, reopen durability and receipt scope. Tests behavioral, no source-grep gates/skips. Run targeted tests/typecheck. Report protocol gaps needing parent review, do not edit contract/interface silently.

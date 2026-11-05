@@ -1,0 +1,29 @@
+{
+  "verifiedAt": "2026-11-05T13:07:38.346521+00:00",
+  "command": "pnpm check",
+  "exitCode": 0,
+  "backend": {
+    "files": 45,
+    "tests": 670
+  },
+  "webUnit": {
+    "files": 8,
+    "tests": 69
+  },
+  "realChromiumE2E": {
+    "tests": 2,
+    "runtimeCalls": 0
+  },
+  "typecheck": [
+    "backend",
+    "web"
+  ],
+  "build": [
+    "backend",
+    "web"
+  ],
+  "standaloneCoreSqliteSmoke": true,
+  "compiledCliSmoke": true,
+  "deepseekDependencyScan": "none",
+  "scope": "governed employee/project commands and scoped execution list; async verification repository still delegated, full product in progress"
+}

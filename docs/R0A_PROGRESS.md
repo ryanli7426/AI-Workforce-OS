@@ -71,3 +71,10 @@
 - 最新门禁为43文件638项后端测试、4文件50项前端测试、1项真实Chromium端到端测试；同时检查前后端类型、构建、独立Core/SQLite smoke、编译后CLI与依赖。
 - 浏览器实际创建Task→批准→取消，SQLite审计保留且Execution为0；真实Claude历史交付只读显示REVIEW/验证passed/SUCCEEDED和作用域日志，未提交人工验收。
 - 具体验收与独立审查处置见 reviews/r1/WEB_ACCEPTANCE.md，启动见 WEB_OPERATIONS.md。SSE、异步验证API、员工/项目写操作、完整19模块、多用户和真实IM仍未完成。
+
+## 2026-11-05：R1-B 配置治理与执行列表
+
+- 员工/项目从只读配置扩展为真实Web/API治理操作；版本、Owner、理由、不可变快照、幂等回执和审计同事务。Git预检在事务外，以同实例不透明prepare/commit连接，复用原Repository。
+- 编辑与确认绑定原快照，不被轮询悄悄覆盖；归档项目原绑定仍可见/可移除，资料修改仅发送实际变化的敏感字段。执行中心采用scope-before-pagination查询，UNKNOWN不提供直接重跑。
+- Cursor3实现路、Pi执行查询、Codex显式gpt-5.6-sol异步验证设计、Claude只读审计，父Agent集成修正与验收。最新完整门禁：45文件670项后端、8文件69项前端、2条真实Chromium流程，全通过。
+- 前后端类型/构建、独立Core/SQLite与编译后CLI smoke、依赖扫描通过。证据见 reviews/r1b。异步验证存储已委派，完整worker/API/Web尚未交付；目标保持继续推进。

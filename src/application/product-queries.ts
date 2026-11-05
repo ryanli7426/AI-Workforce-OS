@@ -23,6 +23,18 @@ const SCOPED_TICKETS = `FROM ticket AS t
     AND t.value ->> '$.mandate.actor.id' = ?
     AND t.value ->> '$.mandate.actor.source' = t.value ->> '$.lifecycle.issue.source'`
 
+const SCOPED_EXECUTIONS = `FROM execution AS e
+  JOIN ticket AS t ON t.id = e.ticket_id
+  JOIN project AS p
+    ON t.value ->> '$.lifecycle.issue.source' = 'manual:' || ? || ':' || p.id
+  WHERE p.workspace_id = ?
+    AND t.value ->> '$.mandate.actor.id' = ?
+    AND t.value ->> '$.mandate.actor.source' = t.value ->> '$.lifecycle.issue.source'`
+
+const EXECUTION_COLUMNS = `e.execution_id, e.assignment_id, e.ticket_id, e.agent_id, e.runtime, e.generation,
+  e.cwd, e.input_revision, e.policy_version, e.state, e.runner_id, e.last_sequence, e.created_at, e.updated_at,
+  e.spec_json, e.state_json`
+
 export interface ProductOverview {
   tasks: { total: number; byStatus: Record<TaskState, number> }
   employees: { configured: number; enabled: number; busy: number }
@@ -39,6 +51,20 @@ export interface ProductTaskListOptions {
 
 export interface ProductTaskListResult {
   items: TaskQueryRow[]
+  nextCursor?: number
+}
+
+export interface ProductExecutionListOptions {
+  limit?: number
+  beforeRowid?: number
+  states?: readonly ExecutionState[]
+  projectId?: string
+  employeeId?: string
+  ticketId?: string
+}
+
+export interface ProductExecutionListResult {
+  items: ExecutionRecord[]
   nextCursor?: number
 }
 
@@ -150,7 +176,9 @@ function validateSchema(db: DatabaseSync): void {
   db.prepare('SELECT id, ticket_id, value FROM event_log LIMIT 0').all()
   db.prepare('SELECT id, workspace_id, config_json FROM project LIMIT 0').all()
   db.prepare('SELECT id, workspace_id, enabled, config_json FROM employee LIMIT 0').all()
-  db.prepare('SELECT execution_id, ticket_id, agent_id, state, state_json FROM execution LIMIT 0').all()
+  db.prepare(`SELECT execution_id, assignment_id, ticket_id, agent_id, runtime, generation, cwd, input_revision,
+    policy_version, state, runner_id, last_sequence, created_at, updated_at, spec_json, state_json
+    FROM execution LIMIT 0`).all()
   db.prepare('SELECT id, kind, status FROM orchestration_intent LIMIT 0').all()
   db.prepare('SELECT id, workspace_id, status, value FROM approval LIMIT 0').all()
 }
@@ -185,12 +213,28 @@ function parseProject(row: Record<string, unknown>, workspaceId: string): Projec
 
 function parseExecution(row: Record<string, unknown>): ExecutionRecord {
   const record = requireObject(parseJson(row.state_json, 'execution record'), 'execution record')
-  if (record.executionId !== row.execution_id || record.ticketId !== row.ticket_id || record.agentId !== row.agent_id || record.state !== row.state) {
-    fail('Invalid execution record identity')
+  const spec = requireObject(parseJson(row.spec_json, 'execution spec'), 'execution spec')
+  const executionId = requireSafeId(row.execution_id, 'executionId')
+  const assignmentId = requireSafeId(row.assignment_id, 'execution assignmentId')
+  const ticketId = requireSafeId(row.ticket_id, 'execution ticketId')
+  const agentId = requireSafeId(row.agent_id, 'execution agentId')
+  const runtime = requireNonemptyString(row.runtime, 'execution runtime')
+  const generation = numberFromSql(row.generation, 'execution generation')
+  if (generation < 1) fail('Invalid execution generation')
+  const cwd = requireNonemptyString(row.cwd, 'execution cwd')
+  const inputRevision = requireNonemptyString(row.input_revision, 'execution inputRevision')
+  const policyVersion = requireNonemptyString(row.policy_version, 'execution policyVersion')
+  const state = requireExecutionState(row.state)
+  const runnerId = row.runner_id === null ? undefined : requireNonemptyString(row.runner_id, 'execution runnerId')
+  const lastSequence = numberFromSql(row.last_sequence, 'execution lastSequence')
+  const createdAt = requireNonemptyString(row.created_at, 'execution createdAt')
+  const updatedAt = requireNonemptyString(row.updated_at, 'execution updatedAt')
+  const identity = { executionId, assignmentId, ticketId, agentId, runtime, generation, cwd, inputRevision, policyVersion }
+  for (const [field, value] of Object.entries(identity)) {
+    if (spec[field] !== value || record[field] !== value) fail('Invalid execution record identity')
   }
-  requireSafeId(record.executionId, 'executionId'); requireSafeId(record.ticketId, 'execution ticketId')
-  requireSafeId(record.assignmentId, 'execution assignmentId'); requireSafeId(record.agentId, 'execution agentId')
-  requireExecutionState(record.state)
+  if (record.state !== state || record.runnerId !== runnerId || record.lastSequence !== lastSequence
+    || record.createdAt !== createdAt || record.updatedAt !== updatedAt) fail('Invalid execution record identity')
   return cloneJson(record as unknown as ExecutionRecord)
 }
 
@@ -209,6 +253,33 @@ function normalizeListOptions(options: ProductTaskListOptions): Required<Pick<Pr
   const projectId = input.projectId === undefined ? undefined : requireSafeId(input.projectId, 'projectId')
   const employeeId = input.employeeId === undefined ? undefined : requireSafeId(input.employeeId, 'employeeId')
   return { limit, beforeRowid, states, projectId, employeeId }
+}
+
+function normalizeExecutionListOptions(options: ProductExecutionListOptions):
+Required<Pick<ProductExecutionListOptions, 'limit'>> & Omit<ProductExecutionListOptions, 'limit'> {
+  const input = requireObject(options, 'execution list options')
+  const allowed = new Set(['limit', 'beforeRowid', 'states', 'projectId', 'employeeId', 'ticketId'])
+  for (const key of Object.keys(input)) if (!allowed.has(key)) fail('Unknown execution list option')
+  const limit = input.limit === undefined ? DEFAULT_LIMIT : requireSafeInteger(input.limit, 'limit', 1)
+  if (limit > MAX_LIMIT) fail(`limit must be between 1 and ${MAX_LIMIT}`)
+  const beforeRowid = input.beforeRowid === undefined ? undefined : requireSafeInteger(input.beforeRowid, 'beforeRowid', 1)
+  let states: ExecutionState[] | undefined
+  if (input.states !== undefined) {
+    if (!Array.isArray(input.states)) fail('Invalid execution states filter')
+    states = []
+    const seen = new Set<ExecutionState>()
+    for (const value of input.states) {
+      if (typeof value !== 'string' || !EXECUTION_STATE_SET.has(value)) fail('Invalid execution state filter')
+      const state = value as ExecutionState
+      if (seen.has(state)) fail('Execution states filter must contain unique values')
+      seen.add(state)
+      states.push(state)
+    }
+  }
+  const projectId = input.projectId === undefined ? undefined : requireSafeId(input.projectId, 'projectId')
+  const employeeId = input.employeeId === undefined ? undefined : requireSafeId(input.employeeId, 'employeeId')
+  const ticketId = input.ticketId === undefined ? undefined : requireSafeId(input.ticketId, 'ticketId')
+  return { limit, beforeRowid, states, projectId, employeeId, ticketId }
 }
 
 /** Constructs read models in a trusted owner/workspace principal context. Construction performs reads only. */
@@ -299,6 +370,33 @@ export function ProductQueries(options: ProductQueriesOptions) {
       return { items, ...(hasMore ? { nextCursor: items.at(-1)!.rowid } : {}) }
     },
 
+    executions(options: ProductExecutionListOptions = {}): ProductExecutionListResult {
+      const normalized = normalizeExecutionListOptions(options)
+      const clauses: string[] = []
+      const parameters = scopeParameters()
+      if (normalized.beforeRowid !== undefined) { clauses.push('e.rowid < ?'); parameters.push(normalized.beforeRowid) }
+      if (normalized.states?.length) {
+        clauses.push(`e.state IN (${normalized.states.map(() => '?').join(', ')})`)
+        parameters.push(...normalized.states)
+      }
+      if (normalized.projectId !== undefined) { clauses.push('p.id = ?'); parameters.push(normalized.projectId) }
+      if (normalized.employeeId !== undefined) { clauses.push('e.agent_id = ?'); parameters.push(normalized.employeeId) }
+      if (normalized.ticketId !== undefined) { clauses.push('e.ticket_id = ?'); parameters.push(normalized.ticketId) }
+      parameters.push(normalized.limit + 1)
+      const extra = clauses.length ? ` AND ${clauses.join(' AND ')}` : ''
+      const rows = db.prepare(`SELECT e.rowid AS rowid, ${EXECUTION_COLUMNS} ${SCOPED_EXECUTIONS}${extra}
+        ORDER BY e.rowid DESC LIMIT ?`).all(...parameters) as Record<string, unknown>[]
+      const hasMore = rows.length > normalized.limit
+      const page = rows.slice(0, normalized.limit).map(row => ({
+        rowid: requireSafeInteger(row.rowid, 'execution rowid', 1),
+        item: parseExecution(row),
+      }))
+      return {
+        items: page.map(item => item.item),
+        ...(hasMore ? { nextCursor: page.at(-1)!.rowid } : {}),
+      }
+    },
+
     task(ticketId: string): ProductTaskDetail | undefined {
       const id = requireSafeId(ticketId, 'ticketId')
       const row = db.prepare(`SELECT t.id AS id, t.value AS value ${SCOPED_TICKETS} AND t.id = ?`).get(
@@ -308,8 +406,8 @@ export function ProductQueries(options: ProductQueriesOptions) {
       const ticket = requireObject(parseJson(row.value, 'ticket record'), 'ticket record')
       if (ticket.id !== id) fail('Invalid task id')
 
-      const executionRows = db.prepare(`SELECT execution_id, ticket_id, agent_id, state, state_json FROM execution
-        WHERE ticket_id = ? ORDER BY rowid DESC LIMIT ?`).all(id, DETAIL_LIMIT + 1) as Record<string, unknown>[]
+      const executionRows = db.prepare(`SELECT ${EXECUTION_COLUMNS} FROM execution AS e
+        WHERE e.ticket_id = ? ORDER BY e.rowid DESC LIMIT ?`).all(id, DETAIL_LIMIT + 1) as Record<string, unknown>[]
       const historyRows = db.prepare(`SELECT value FROM event_log WHERE ticket_id = ? ORDER BY rowid DESC LIMIT ?`)
         .all(id, DETAIL_LIMIT + 1) as Record<string, unknown>[]
       const executionsTruncated = executionRows.length > DETAIL_LIMIT
@@ -337,12 +435,8 @@ export function ProductQueries(options: ProductQueriesOptions) {
 
     execution(executionId: string): ExecutionRecord | undefined {
       const id = requireSafeId(executionId, 'executionId')
-      const row = db.prepare(`SELECT e.execution_id, e.ticket_id, e.agent_id, e.state, e.state_json FROM execution AS e
-        JOIN ticket AS t ON t.id = e.ticket_id
-        JOIN project AS p ON t.value ->> '$.lifecycle.issue.source' = 'manual:' || ? || ':' || p.id
-        WHERE p.workspace_id = ? AND t.value ->> '$.mandate.actor.id' = ?
-          AND t.value ->> '$.mandate.actor.source' = t.value ->> '$.lifecycle.issue.source'
-          AND e.execution_id = ?`).get(...scopeParameters(), id) as Record<string, unknown> | undefined
+      const row = db.prepare(`SELECT ${EXECUTION_COLUMNS} ${SCOPED_EXECUTIONS}
+        AND e.execution_id = ?`).get(...scopeParameters(), id) as Record<string, unknown> | undefined
       return row ? parseExecution(row) : undefined
     },
   }

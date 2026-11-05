@@ -1,12 +1,17 @@
-import type { ProductOverview, ProductTaskListOptions, ProductTaskListResult, ProductTaskDetail } from '../../src/application/product-queries.ts'
+import type { ManagementCommand, ManagementResult, ManagementAudit } from '../../src/application/management-commands.ts'
+export type { ManagementCommand, ManagementResult, ManagementAudit } from '../../src/application/management-commands.ts'
+import type { ProductOverview, ProductTaskListOptions, ProductTaskListResult, ProductTaskDetail, ProductExecutionListOptions, ProductExecutionListResult } from '../../src/application/product-queries.ts'
 import type { LocalTaskCommand, TaskCommandResult } from '../../src/application/task-commands.ts'
 import type { Employee } from '../../src/workforce/employees.ts'
 import type { Project } from '../../src/projects/projects.ts'
 import type { ExecutionRecord } from '../../src/execution/model.ts'
 import type { ExecutionLogsResult } from '../../src/observability/execution-logs.ts'
-export type { ProductOverview, ProductTaskListOptions, ProductTaskListResult, ProductTaskDetail, LocalTaskCommand, TaskCommandResult, Employee, Project, ExecutionRecord, ExecutionLogsResult }
+export type { ProductOverview, ProductTaskListOptions, ProductTaskListResult, ProductTaskDetail, ProductExecutionListOptions, ProductExecutionListResult, LocalTaskCommand, TaskCommandResult, Employee, Project, ExecutionRecord, ExecutionLogsResult }
 export interface Principal { ownerId: string; workspaceId: string; role: 'owner' }
 export interface ApiClient {
+  executions(options?: ProductExecutionListOptions, signal?: AbortSignal): Promise<ProductExecutionListResult>
+  manage(key: string, command: ManagementCommand, signal?: AbortSignal): Promise<ManagementResult>
+  managementHistory(kind: 'employee' | 'project', id: string, signal?: AbortSignal): Promise<{items: ManagementAudit[]}>
   me(signal?: AbortSignal): Promise<Principal>
   overview(signal?: AbortSignal): Promise<ProductOverview>
   employees(signal?: AbortSignal): Promise<Employee[]>
@@ -535,6 +540,37 @@ function mapRequestFailure(error: unknown, caller: AbortSignal | undefined, time
   throw new ApiError('NETWORK', 0)
 }
 
+function managementRequest(command: ManagementCommand): {path: string; body: unknown} {
+  const body = {input: command.input, reason: command.reason}
+  switch (command.kind) {
+    case 'employee-create': return {path: `${API_PREFIX}/employees`, body}
+    case 'project-create': return {path: `${API_PREFIX}/projects`, body}
+    case 'employee-update': return {path: `${API_PREFIX}/employees/${requireSafeId(command.id, 'id')}/update`, body}
+    case 'employee-enable': return {path: `${API_PREFIX}/employees/${requireSafeId(command.id, 'id')}/enable`, body}
+    case 'project-update': return {path: `${API_PREFIX}/projects/${requireSafeId(command.id, 'id')}/update`, body}
+    case 'project-archive': return {path: `${API_PREFIX}/projects/${requireSafeId(command.id, 'id')}/archive`, body}
+    default: throw new ApiError('INVALID_REQUEST', 400)
+  }
+}
+function assertManagementResult(value: unknown): ManagementResult {
+  if (!isRecord(value) || typeof value.replayed !== 'boolean') failInvalidResponse()
+  if (value.kind === 'employee') {assertEmployee(value.employee); return value as unknown as ManagementResult}
+  if (value.kind === 'project') {assertProject(value.project); return value as unknown as ManagementResult}
+  return failInvalidResponse()
+}
+function assertManagementHistory(value: unknown): {items: ManagementAudit[]} {
+  if (!isRecord(value) || !Array.isArray(value.items) || value.items.length > 100) failInvalidResponse()
+  const actions = new Set(['employee-create','employee-update','employee-enable','project-create','project-update','project-archive'])
+  for (const entry of value.items) {
+    if (!isRecord(entry)) failInvalidResponse()
+    for (const key of ['id','actorId','workspaceId','resourceId','reason','createdAt']) requireStringField(entry,key)
+    if ((entry.kind !== 'employee' && entry.kind !== 'project') || typeof entry.action !== 'string' || !actions.has(entry.action)) failInvalidResponse()
+    if (entry.beforeVersion !== null && (!Number.isSafeInteger(entry.beforeVersion) || Number(entry.beforeVersion) < 1)) failInvalidResponse()
+    if (!Number.isSafeInteger(entry.afterVersion) || Number(entry.afterVersion) < 1) failInvalidResponse()
+  }
+  return value as unknown as {items: ManagementAudit[]}
+}
+
 export function createApiClient(token: string): ApiClient {
   if (typeof token !== 'string' || !TOKEN_HEX.test(token)) {
     throw new ApiError('INVALID_REQUEST', 400)
@@ -612,6 +648,34 @@ export function createApiClient(token: string): ApiClient {
   }
 
   const client: ApiClient = {
+    async executions(options = {}, signal) {
+      const params = new URLSearchParams()
+      for (const key of Object.keys(options)) if (!['limit','beforeRowid','states','projectId','employeeId','ticketId'].includes(key)) throw new ApiError('INVALID_REQUEST',400)
+      for (const key of ['limit','beforeRowid'] as const) {
+        const value = options[key]
+        if (value !== undefined) {if(!Number.isSafeInteger(value) || value < 1 || key === 'limit' && value > 200) throw new ApiError('INVALID_REQUEST',400);params.set(key,String(value))}
+      }
+      for (const key of ['projectId','employeeId','ticketId'] as const) if(options[key] !== undefined) params.set(key,requireSafeId(options[key],key))
+      if(options.states !== undefined) {
+        if(!Array.isArray(options.states) || options.states.length === 0 || new Set(options.states).size !== options.states.length || options.states.some(state => !EXECUTION_STATE_SET.has(state))) throw new ApiError('INVALID_REQUEST',400)
+        params.set('states',options.states.join(','))
+      }
+      return request(`${API_PREFIX}/executions${params.size ? `?${params}` : ''}`, {method:'GET',signal,okStatuses:new Set([200]),parse(value) {
+        if(!isRecord(value) || !Array.isArray(value.items) || value.items.length > 200) return failInvalidResponse()
+        for(const item of value.items) assertExecution(item)
+        if(value.nextCursor !== undefined && (!Number.isSafeInteger(value.nextCursor) || Number(value.nextCursor) < 1)) return failInvalidResponse()
+        return value as unknown as ProductExecutionListResult
+      }})
+    },
+    async manage(key, command, signal) {
+      const idempotencyKey = requireSafeKey(key)
+      const input = managementRequest(command)
+      return request(input.path, {method:'POST',body:input.body,idempotencyKey,signal,okStatuses:new Set([200,201]),parse:assertManagementResult})
+    },
+    async managementHistory(kind, id, signal) {
+      if (kind !== 'employee' && kind !== 'project') throw new ApiError('INVALID_REQUEST',400)
+      return request(`${API_PREFIX}/${kind === 'employee' ? 'employees' : 'projects'}/${requireSafeId(id,'id')}/history`, {method:'GET',signal,okStatuses:new Set([200]),parse:assertManagementHistory})
+    },
     async me(signal) {
       return request(`${API_PREFIX}/me`, {
         method: 'GET',

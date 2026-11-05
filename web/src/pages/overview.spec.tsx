@@ -151,6 +151,9 @@ function createApi(partial: Partial<ApiClient> = {}): ApiClient {
     throw new Error(`unexpected call: ${name}`)
   })
   return {
+    executions: vi.fn().mockResolvedValue({items:[]}),
+    manage: vi.fn().mockRejectedValue(new Error('Unused management command')),
+    managementHistory: vi.fn().mockResolvedValue({items:[]}),
     me: unexpected('me'),
     overview: unexpected('overview'),
     employees: unexpected('employees'),

@@ -97,3 +97,9 @@ Cursor 累计 **29路独立任务**：本批3路实现加1路独立审查，既�
 | main只读审查 | 父 Agent的登录/同源部署/静态边界与E2E | 报告与逐项处置见 reviews/r1/WEB_ACCEPTANCE.md |
 
 父 Agent拥有登录内存会话、路由/主题/布局、静态资源服务、CLI接线和真实浏览器测试；没有让子任务自行接受生产Task。浏览器完成创建/批准/取消的SQLite闭环，另只读展示原真实Claude的REVIEW/验证/执行日志。门禁及未完成范围见 WEB_OPERATIONS.md 与交付跟踪。
+
+## 第七批：配置治理与执行列表（2026-11-05）
+
+Cursor Auto 本批3路实现：management-service、management-http、management-web，均已返修并经父 Agent集成；累计32路。Pi新增执行列表查询；Codex明确gpt-5.6-sol做异步验证架构只读审查；Claude Code对父 Agent集成做独立Read-only审计。父 Agent完成资源回执完整快照校验、编辑快照/冲突、归档绑定、错误分类、UI拆分、HTTP/browser client与真实E2E。
+
+证据见 reviews/r1b。下一路Cursor已启动verification-jobs，仅拥有任务模型/存储/测试，累计派发33路，其中该路仍在实施，不能计为完成。异步验证尚无产品闭环；先完成持久性与UNKNOWN占用，再开发独立worker、对账、API和Web。

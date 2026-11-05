@@ -853,6 +853,15 @@ describe('queries and mutations', () => {
     expect(execution.statusCode).toBe(200)
     expect(execution.json().executionId).toBe('execution-1')
     expect(execution.json().ticketId).toBe(ticketId)
+    const page = await inject(app,{method:'GET',url:`/api/v1/executions?limit=1&ticketId=${ticketId}&states=STARTING&employeeId=emp-1&projectId=proj-1`})
+    expect(page.statusCode).toBe(200)
+    expect(page.json().items.map((item: {executionId:string})=>item.executionId)).toEqual(['execution-1'])
+    expect((await inject(app,{method:'GET',url:'/api/v1/executions?states=NOT_REAL'})).statusCode).toBe(400)
+    expect((await inject(app,{method:'GET',url:'/api/v1/executions?states=RUNNING,RUNNING'})).statusCode).toBe(400)
+    expect((await inject(app,{method:'GET',url:'/api/v1/executions?ownerId=other'})).statusCode).toBe(400)
+    expect((await inject(app,{method:'GET',url:'/api/v1/executions?ticketId=missing-ticket'})).json().items).toEqual([])
+    expect((await app.inject({url:'/api/v1/executions',headers:{host:HOST}})).statusCode).toBe(401)
+
 
     const missingExec = await inject(app, { method: 'GET', url: '/api/v1/executions/missing-exec' })
     expect(missingExec.statusCode).toBe(404)

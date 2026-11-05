@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from './app.tsx'
 vi.mock('./pages/tasks.tsx', () => ({ TasksPage:()=> <h1>任务中心测试</h1>,TaskPage:()=> <h1>任务详情测试</h1> }))
 vi.mock('./pages/overview.tsx', () => ({OverviewPage:()=> <h1>概览测试</h1>,EmployeesPage:()=> <h1>员工测试</h1>,ProjectsPage:()=> <h1>项目测试</h1>,ExecutionPage:()=> <h1>执行测试</h1>}))
+vi.mock('./pages/management.tsx', () => ({EmployeesManager:()=> <h1>员工测试</h1>,ProjectsManager:()=> <h1>项目测试</h1>}))
 const token='a'.repeat(64)
 beforeEach(()=>{window.location.hash='';localStorage.clear();sessionStorage.clear();vi.unstubAllGlobals()})
 function submit(value=token) { fireEvent.change(screen.getByLabelText('本地访问凭证'),{target:{value}});fireEvent.click(screen.getByRole('button',{name:'连接工作空间'})) }

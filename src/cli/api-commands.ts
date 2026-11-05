@@ -16,6 +16,7 @@ import { createApiServer } from '../api/server.ts'
 import { loadSettings } from '../config/settings.ts'
 import { redact } from '../security/redaction.ts'
 import { applicationRepositories } from '../storage/application-store.ts'
+import { requireManagementSchema } from '../storage/management-commands.ts'
 import { requireCommandSchema } from '../storage/command-receipts.ts'
 import { LAO_SCHEMA_VERSION, LocalStore } from '../storage/store.ts'
 
@@ -292,6 +293,7 @@ function validateInitializedDataDir(dataDir: string): string {
     readMainSchema(db)
     applicationRepositories(db)
     requireCommandSchema(db)
+    requireManagementSchema(db)
   } finally {
     db?.close()
   }

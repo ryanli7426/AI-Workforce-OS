@@ -1,5 +1,6 @@
 /** Authenticated local HTTP application transport. Factory never listens, migrates, or starts Runtime. */
 import { isAbsolute } from 'node:path'
+import { registerManagementRoutes } from './management-routes.ts'
 import { loadWebAssets } from './web-assets.ts'
 import Fastify, {
   type FastifyInstance,
@@ -15,6 +16,7 @@ import {
   TaskCommandError,
 } from '../application/task-commands.ts'
 import { validateSettings, type LocalSettings } from '../config/settings.ts'
+import { EXECUTION_STATES, type ExecutionState } from '../execution/model.ts'
 import { TASK_STATES, type TaskState } from '../core/lifecycle-model.ts'
 import { readExecutionLogs } from '../observability/execution-logs.ts'
 import { applicationRepositories } from '../storage/application-store.ts'
@@ -527,6 +529,7 @@ export function createApiServer(options: CreateApiServerOptions): FastifyInstanc
     sendError(reply, mapped.statusCode, mapped.code, mapped.message)
   })
 
+  registerManagementRoutes(app, {store,settings})
   webAssets?.register(app)
 
   app.get('/api/v1/health', {
@@ -618,6 +621,19 @@ export function createApiServer(options: CreateApiServerOptions): FastifyInstanc
     const detail = queries.task(ticketId)
     if (!detail) failRequest(404, 'NOT_FOUND', 'Not found')
     return detail
+  })
+
+  app.get('/api/v1/executions', {
+    schema: {querystring: {...tasksQuery, properties: {...tasksQuery.properties, ticketId: {type:'string',pattern:SAFE_ID.source}}}},
+  }, async request => {
+    const query = request.query as {limit?:string;beforeRowid?:string;states?:string;projectId?:string;employeeId?:string;ticketId?:string}
+    let states: ExecutionState[] | undefined
+    if (query.states !== undefined) {
+      const parts = query.states.split(',')
+      if (parts.some(state => !EXECUTION_STATES.includes(state as ExecutionState)) || new Set(parts).size !== parts.length) failRequest(400,'INVALID_REQUEST','Invalid request')
+      states = parts as ExecutionState[]
+    }
+    return queries.executions({limit:parseLimit(query.limit),beforeRowid:parseBeforeRowid(query.beforeRowid),states,projectId:parseOptionalSafeId(query.projectId,'projectId'),employeeId:parseOptionalSafeId(query.employeeId,'employeeId'),ticketId:parseOptionalSafeId(query.ticketId,'ticketId')})
   })
 
   app.get('/api/v1/executions/:executionId', {

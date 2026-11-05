@@ -137,6 +137,9 @@ function listResult(items: ProductTaskListResult['items'], nextCursor?: number):
 
 function mockApi(partial: Partial<ApiClient> = {}): ApiClient {
   return {
+    executions: vi.fn().mockResolvedValue({items:[]}),
+    manage: vi.fn().mockRejectedValue(new Error('Unused management command')),
+    managementHistory: vi.fn().mockResolvedValue({items:[]}),
     me: vi.fn(),
     overview: vi.fn(),
     employees: vi.fn(async () => [employeeFixture()]),

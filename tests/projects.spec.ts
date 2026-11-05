@@ -291,6 +291,30 @@ describe('Project records', () => {
     expect(again.version).toBe(1)
     expect(projects.snapshot('noop', 2)).toBeUndefined()
   })
+
+  it('prepareCreate validates outside transactions and commitCreate rejects forged tokens', () => {
+    const db = openDb()
+    const projects = repo(db)
+    const input = baseInput({ id: 'prepared', name: 'Prepared' })
+    expect(db.isTransaction).toBe(false)
+    const prepared = projects.prepareCreate(input)
+    expect(() => projects.commitCreate({ __brand: 'PreparedProjectCreate' })).toThrow(/Invalid prepared/)
+    const other = new ProjectRepository(db)
+    expect(() => other.commitCreate(prepared)).toThrow(/Invalid prepared/)
+    const created = projects.commitCreate(prepared)
+    expect(created.id).toBe('prepared')
+    expect(created.version).toBe(1)
+    expect(() => projects.commitCreate(prepared)).toThrow(/Invalid prepared/)
+
+    expect(() => {
+      db.exec('BEGIN')
+      try {
+        projects.prepareCreate(baseInput({ id: 'tx-blocked', name: 'Tx' }))
+      } finally {
+        db.exec('ROLLBACK')
+      }
+    }).toThrow(/inside a transaction/)
+  })
 })
 
 describe('integration gaps', () => {
