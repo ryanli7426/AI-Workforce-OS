@@ -143,10 +143,21 @@ export class Lifecycle {
     const ticket = this.require(id), result = ticket.lifecycle.result
     if (ticket.lifecycle.status !== 'REVIEW' || !result || input.executionId !== result.executionId || input.artifactRevision !== result.artifactRevision)
       throw new Error('Verification does not match current execution artifacts')
+    if (this.options.policy().version !== ticket.lifecycle.policyVersion || !this.options.policy().revalidate(ticket.mandate))
+      throw new Error('Authorization is stale')
     if (!['unknown', 'passed', 'failed', 'not_required'].includes(input.state)) throw new Error('Invalid verification status')
+    if (input.provenance !== undefined) {
+      const proof = input.provenance
+      if (!proof || typeof proof !== 'object' || Array.isArray(proof) || Object.keys(proof).length !== 4
+        || !['verificationId','reportSha256','planId','planRevision'].every(field => Object.hasOwn(proof,field))
+        || !['verificationId','planId','planRevision'].every(field => typeof proof[field as keyof typeof proof] === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(proof[field as keyof typeof proof]))
+        || typeof proof.reportSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(proof.reportSha256)
+        || (input.state !== 'passed' && input.state !== 'failed')) throw new Error('Invalid verification provenance')
+    }
     result.verification = input.state; ticket.lifecycle.version++; ticket.updatedAt = this.now()
     this.audit(ticket, { kind: 'evidence', actor: input.actor, reason: input.reason, executionId: result.executionId,
-      artifactRevision: result.artifactRevision, assignmentId: result.assignmentId, verification: input.state })
+      artifactRevision: result.artifactRevision, assignmentId: result.assignmentId, verification: input.state,
+      ...(input.provenance ? {verificationProvenance: structuredClone(input.provenance)} : {}) })
     this.options.repo.tickets.save(ticket)
     return ticket
   }

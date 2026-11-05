@@ -25,12 +25,19 @@ export interface ExecutionEvidence {
   verification: 'unknown' | 'passed' | 'failed' | 'not_required'
 }
 export type ExecutionResult = Omit<ExecutionEvidence, 'verification'>
+export interface VerificationProvenance {
+  verificationId: string
+  reportSha256: string
+  planId: string
+  planRevision: string
+}
 export interface VerificationEvidence {
   executionId: string
   artifactRevision: string
   state: ExecutionEvidence['verification']
   actor: string
   reason: string
+  provenance?: VerificationProvenance
 }
 export interface TaskLifecycle {
   status: TaskState
@@ -60,6 +67,7 @@ export interface TaskAudit {
   artifactRevision?: string
   decision?: 'approved' | 'rejected'
   verification?: ExecutionEvidence['verification']
+  verificationProvenance?: VerificationProvenance
   evidence?: ExecutionEvidence
   issueSnapshot?: IssueSnapshot
 }

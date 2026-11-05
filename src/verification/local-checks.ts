@@ -18,7 +18,7 @@ import {
 } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path'
 import type { Readable } from 'node:stream'
-import { ArtifactStore } from '../artifacts/snapshots.ts'
+import { ArtifactStore, type ArtifactManifest } from '../artifacts/snapshots.ts'
 import { StreamingRedactor } from '../security/redaction.ts'
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
@@ -33,6 +33,8 @@ const SPAWN_CONFIRM_MS = 5_000
 const GRACE_MS = 200
 const POST_KILL_MS = 2_000
 const CLOSE_WAIT_MS = 2_000
+/** Absolute bound for stop confirmation even when exit/close events never arrive. */
+const TERMINATION_BOUND_MS = GRACE_MS + POST_KILL_MS + CLOSE_WAIT_MS
 const POSIX = process.platform !== 'win32'
 const REPORT_FILE = 'report.json'
 const WORKSPACE_DIRECTORY = 'workspace'
@@ -83,7 +85,44 @@ export interface VerifyInput {
   waiveReason?: string
 }
 
+export interface VerificationSupervisionOptions {
+  signal: AbortSignal
+  onProcess?: (info: { checkId: string; processId: number }) => void | Promise<void>
+}
+
+export type SupervisedVerificationResult =
+  | { status: 'completed'; terminalConfirmed: true; report: VerificationReport }
+  | { status: 'cancelled'; terminalConfirmed: true; failureCode: 'CANCELLED' }
+  | { status: 'failed'; terminalConfirmed: true; failureCode: string }
+  | { status: 'unknown'; terminalConfirmed: false; failureCode: string }
+
 type RuntimeChild = ChildProcessByStdio<null, Readable, Readable>
+
+type OwnedCheckOutcome =
+  /** `acceptedOutputBytes` is internal aggregate accounting only; never part of the public report DTO. */
+  | { status: 'finished'; terminalConfirmed: true; result: VerificationCheckResult; acceptedOutputBytes: number }
+  | { status: 'cancelled'; terminalConfirmed: true; result?: VerificationCheckResult }
+  | { status: 'callback_failed'; terminalConfirmed: true; result?: VerificationCheckResult }
+  | { status: 'infrastructure_failed'; terminalConfirmed: true; failureCode: string; result?: VerificationCheckResult }
+  | { status: 'unknown'; terminalConfirmed: false; failureCode: string; result?: VerificationCheckResult }
+
+interface RunOwnedCheckOptions {
+  signal?: AbortSignal
+  onProcess?: (info: { checkId: string; processId: number }) => void | Promise<void>
+  /** Supervised mode awaits startup proof when a PID exists; legacy may best-effort return. */
+  awaitStartupConfirmation: boolean
+  /** Combined stdout+stderr budget for this check; defaults to MAX_OUTPUT_BYTES. */
+  maxOutputBytes?: number
+}
+
+interface PreparedVerification {
+  request: VerifyInput
+  verificationRoot: string
+  artifactRoot: string
+  destination: string
+  artifactFilesRoot: string
+  manifest: ArtifactManifest
+}
 
 function fail(message: string): never {
   throw new Error(message)
@@ -120,6 +159,44 @@ function errorCode(error: unknown): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolvePromise => setTimeout(resolvePromise, ms))
+}
+
+function parseSupervisionOptions(value: unknown): VerificationSupervisionOptions {
+  assertObject(value, 'verification supervision options')
+  const optional = 'onProcess' in value ? ['onProcess'] : []
+  assertExactKeys(value, ['signal', ...optional], 'verification supervision options')
+  if (!(value.signal instanceof AbortSignal)) fail('verification supervision options signal is invalid')
+  if ('onProcess' in value && value.onProcess !== undefined && typeof value.onProcess !== 'function') {
+    fail('verification supervision options onProcess is invalid')
+  }
+  return {
+    signal: value.signal,
+    ...(typeof value.onProcess === 'function'
+      ? { onProcess: value.onProcess as VerificationSupervisionOptions['onProcess'] }
+      : {}),
+  }
+}
+
+function classifyPreflightFailure(error: unknown): string {
+  const code = errorCode(error)
+  if (code === 'ENOENT') return 'ARTIFACT_MISSING'
+  const message = error instanceof Error ? error.message : ''
+  if (/authorized|verify input|safe identifier|timeoutMs|waiveReason|checks must|duplicate check|args are|artifactRevision must|command is invalid|command must be an absolute/i.test(message)) {
+    return 'INVALID_INPUT'
+  }
+  if (/symbolic link|must be absolute|must be a directory|must be private|overlap|already exists|cwd must|Verification root/i.test(message)) {
+    return 'INVALID_PATH'
+  }
+  if (/Artifact path is not|Artifact directory contains|Artifact manifest|Artifact files entry|ENOENT|not found/i.test(message)) {
+    return 'ARTIFACT_MISSING'
+  }
+  if (/execution identity|revision does not match|Artifact identity|Artifact file verification|digest|copy digest|copy size|Artifact files do not match|Artifact contains unexpected|Artifact file identity/i.test(message)) {
+    return 'ARTIFACT_MISMATCH'
+  }
+  if (/command cannot|command must be a regular|command is not executable/i.test(message)) {
+    return 'COMMAND_INVALID'
+  }
+  return 'SETUP_FAILED'
 }
 
 async function rejectSymlinkComponents(path: string, allowMissing: boolean): Promise<void> {
@@ -316,6 +393,18 @@ async function copyArtifactFiles(
   }
 }
 
+async function fsyncContainingDirectory(filePath: string): Promise<void> {
+  const handle = await open(dirname(filePath), constants.O_RDONLY | (constants.O_DIRECTORY ?? 0))
+  try {
+    await handle.sync()
+  } catch (error) {
+    const code = errorCode(error)
+    if (code !== 'EINVAL' && code !== 'ENOTSUP') throw error
+  } finally {
+    await handle.close()
+  }
+}
+
 async function persistReport(destination: string, report: VerificationReport): Promise<void> {
   await assertAbsent(destination, 'verification report')
   const temporary = join(dirname(destination), `.report-${basename(destination)}-${randomBytes(8).toString('hex')}.tmp`)
@@ -329,23 +418,115 @@ async function persistReport(destination: string, report: VerificationReport): P
   await chmod(temporary, 0o600)
   await rename(temporary, destination)
   await chmod(destination, 0o600)
+  await fsyncContainingDirectory(destination)
 }
 
-async function runCheck(
+async function awaitOwnedTermination(
+  child: RuntimeChild,
+  processId: number,
+  state: {
+    directExited: () => boolean
+    childClosed: () => boolean
+    exitCode: () => number | null | undefined
+    exitSignal: () => NodeJS.Signals | null | undefined
+  },
+): Promise<{ confirmed: boolean; alive: boolean; closed: boolean; directExited: boolean }> {
+  const terminationRequestedAt = Date.now()
+  const deadlineAt = terminationRequestedAt + TERMINATION_BOUND_MS
+  let killSentAt: number | undefined
+  let closeWaitStartedAt: number | undefined
+  const groupAlive = (): boolean => (POSIX ? processGroupAlive(processId) : !state.directExited())
+
+  try { signalProcess(child, processId, 'SIGTERM') } catch { /* escalate */ }
+
+  for (;;) {
+    const now = Date.now()
+    if (groupAlive() && killSentAt === undefined && now - terminationRequestedAt >= GRACE_MS) {
+      killSentAt = now
+      try { signalProcess(child, processId, 'SIGKILL') } catch { /* confirm via poll */ }
+    }
+    const alive = groupAlive()
+    const exited = state.directExited()
+    const closed = state.childClosed()
+    if (!alive && exited && closeWaitStartedAt === undefined) closeWaitStartedAt = now
+    // PID-owned confirmation requires direct exit + stream close + group absence.
+    if (exited && closed && !alive) {
+      return { confirmed: true, alive: false, closed: true, directExited: true }
+    }
+    const killExpired = killSentAt !== undefined && now - killSentAt >= POST_KILL_MS
+    const closeExpired = closeWaitStartedAt !== undefined && now - closeWaitStartedAt >= CLOSE_WAIT_MS
+    const absoluteExpired = now >= deadlineAt
+    if (killExpired || closeExpired || absoluteExpired) {
+      try { child.stdout.destroy() } catch { /* ignore */ }
+      try { child.stderr.destroy() } catch { /* ignore */ }
+      if (alive) {
+        try { signalProcess(child, processId, 'SIGKILL') } catch { /* final attempt */ }
+      }
+      return { confirmed: false, alive, closed, directExited: exited }
+    }
+    await sleep(LOOP_MS)
+  }
+}
+
+type CallbackRaceResult = 'completed' | 'failed' | 'aborted' | 'timed_out'
+
+async function raceProcessCallback(
+  invoke: () => void | Promise<void>,
+  options: { signal?: AbortSignal; deadlineAt: number },
+): Promise<CallbackRaceResult> {
+  let settled = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let onAbort: (() => void) | undefined
+
+  return await new Promise<CallbackRaceResult>(resolvePromise => {
+    const finish = (result: CallbackRaceResult): void => {
+      if (settled) return
+      settled = true
+      if (timer !== undefined) clearTimeout(timer)
+      if (onAbort && options.signal) options.signal.removeEventListener('abort', onAbort)
+      resolvePromise(result)
+    }
+
+    if (options.signal?.aborted) {
+      finish('aborted')
+      return
+    }
+
+    const remainingMs = Math.max(0, options.deadlineAt - Date.now())
+    timer = setTimeout(() => finish('timed_out'), remainingMs)
+
+    if (options.signal) {
+      onAbort = () => finish('aborted')
+      options.signal.addEventListener('abort', onAbort, { once: true })
+    }
+
+    Promise.resolve()
+      .then(() => invoke())
+      .then(() => finish('completed'), () => finish('failed'))
+  })
+}
+
+async function runOwnedCheck(
   check: VerificationCheckRequest,
   cwd: string,
-): Promise<VerificationCheckResult> {
+  options: RunOwnedCheckOptions,
+): Promise<OwnedCheckOutcome> {
   await assertRegularExecutable(check.command, check.id)
   const cwdInfo = await lstat(cwd)
   if (cwdInfo.isSymbolicLink() || !cwdInfo.isDirectory()) fail(`check ${check.id} cwd must be a real directory`)
+
+  if (options.signal?.aborted) {
+    return { status: 'cancelled', terminalConfirmed: true }
+  }
 
   const env = minimalEnvironment()
   const secrets = Object.entries(env)
     .filter(([name, value]) => /KEY|TOKEN|SECRET|PASSWORD/i.test(name) && !!value)
     .map(([, value]) => value!)
+  const outputLimit = Math.max(0, options.maxOutputBytes ?? MAX_OUTPUT_BYTES)
   const redactors = {
-    stdout: new StreamingRedactor({ secrets, maxPendingBytes: MAX_OUTPUT_BYTES }),
-    stderr: new StreamingRedactor({ secrets, maxPendingBytes: MAX_OUTPUT_BYTES }),
+    stdout: new StreamingRedactor({ secrets, maxPendingBytes: Math.max(1, outputLimit) }),
+    stderr: new StreamingRedactor({ secrets, maxPendingBytes: Math.max(1, outputLimit) }),
   }
 
   let child: RuntimeChild | undefined
@@ -361,6 +542,7 @@ async function runCheck(
   let outputExceeded = false
   let acceptingOutput = true
   const started = Date.now()
+  const checkDeadlineAt = started + check.timeoutMs
 
   try {
     child = spawn(check.command, check.args, {
@@ -378,7 +560,7 @@ async function runCheck(
   const writeOutput = (kind: 'stdout' | 'stderr', chunk: Buffer | string): void => {
     if (!acceptingOutput || outputExceeded) return
     const data = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
-    const remaining = Math.max(0, MAX_OUTPUT_BYTES - outputBytes)
+    const remaining = Math.max(0, outputLimit - outputBytes)
     const accepted = Math.min(remaining, data.length)
     if (accepted > 0) {
       const text = redactors[kind].write(data.subarray(0, accepted))
@@ -409,111 +591,258 @@ async function runCheck(
   }
 
   const spawnDeadline = Date.now() + SPAWN_CONFIRM_MS
-  while (child && !spawned && !spawnError && Date.now() < spawnDeadline) await sleep(LOOP_MS)
+  while (child && !spawned && !spawnError && Date.now() < spawnDeadline) {
+    if (options.signal?.aborted) break
+    await sleep(LOOP_MS)
+  }
 
   const finishRedactors = (): void => {
     stdout += redactors.stdout.end()
     stderr += redactors.stderr.end()
   }
 
+  const snapshotResult = (reason?: string): VerificationCheckResult => ({
+    id: check.id,
+    exitCode: exitCode ?? null,
+    signal: exitSignal ?? null,
+    durationMs: Math.max(0, Date.now() - started),
+    stdout,
+    stderr,
+    ...(reason !== undefined ? { reason } : {}),
+  })
+
+  const finishedOutcome = (result: VerificationCheckResult): OwnedCheckOutcome => ({
+    status: 'finished',
+    terminalConfirmed: true,
+    result,
+    acceptedOutputBytes: outputBytes,
+  })
+
+  const ownershipState = {
+    directExited: () => directExited,
+    childClosed: () => childClosed,
+    exitCode: () => exitCode,
+    exitSignal: () => exitSignal,
+  }
+
   if (!child || spawnError || !spawned || child.pid === undefined) {
     acceptingOutput = false
     if (child?.pid !== undefined) {
-      try { signalProcess(child, child.pid, 'SIGKILL') } catch { /* best-effort */ }
+      if (options.awaitStartupConfirmation) {
+        const stop = await awaitOwnedTermination(child, child.pid, ownershipState)
+        child.stdout.destroy()
+        child.stderr.destroy()
+        finishRedactors()
+        if (!stop.confirmed) {
+          return {
+            status: 'unknown',
+            terminalConfirmed: false,
+            failureCode: stop.alive
+              ? 'PROCESS_GROUP_ALIVE'
+              : (!stop.directExited || !stop.closed ? 'STREAM_UNCONFIRMED' : 'PROCESS_UNCONFIRMED'),
+            result: snapshotResult('child startup failed'),
+          }
+        }
+        return finishedOutcome(snapshotResult(`child startup failed (${errorCode(spawnError)})`))
+      }
+      try { signalProcess(child, child.pid, 'SIGKILL') } catch { /* best-effort legacy */ }
     }
     child?.stdout.destroy()
     child?.stderr.destroy()
     finishRedactors()
-    return {
-      id: check.id,
-      exitCode: exitCode ?? null,
-      signal: exitSignal ?? null,
-      durationMs: Math.max(0, Date.now() - started),
-      stdout,
-      stderr,
-      reason: `child startup failed (${errorCode(spawnError)})`,
-    }
+    return finishedOutcome(snapshotResult(`child startup failed (${errorCode(spawnError)})`))
   }
 
   const processId = child.pid
-  const timeoutAt = Date.now() + check.timeoutMs
-  let terminationReason: string | undefined
-  let terminationRequestedAt: number | undefined
-  let killSentAt: number | undefined
-  let closeWaitStartedAt: number | undefined
-  const groupAlive = (): boolean => (POSIX ? processGroupAlive(processId) : !directExited)
 
-  const requestStop = (reason: string): void => {
-    if (terminationReason) return
-    terminationReason = reason
-    terminationRequestedAt = Date.now()
-    try { signalProcess(child!, processId, 'SIGTERM') } catch { /* escalate to SIGKILL */ }
+  const stopOwnedWithProof = async (
+    reason: string,
+  ): Promise<{ confirmed: boolean; alive: boolean; failureCode: string }> => {
+    acceptingOutput = false
+    const stop = await awaitOwnedTermination(child!, processId, ownershipState)
+    try { child!.stdout.destroy() } catch { /* ignore */ }
+    try { child!.stderr.destroy() } catch { /* ignore */ }
+    try { finishRedactors() } catch { /* ignore */ }
+    if (!stop.confirmed) {
+      const failureCode = stop.alive
+        ? 'PROCESS_GROUP_ALIVE'
+        : (!stop.directExited || !stop.closed ? 'STREAM_UNCONFIRMED' : 'PROCESS_UNCONFIRMED')
+      return { confirmed: false, alive: stop.alive, failureCode }
+    }
+    return { confirmed: true, alive: false, failureCode: reason }
   }
 
-  for (;;) {
-    const now = Date.now()
-    if (!terminationReason && outputExceeded) requestStop('combined output limit exceeded')
-    if (!terminationReason && now >= timeoutAt) requestStop('verification check timed out')
-    if (!terminationReason && directExited && groupAlive()) requestStop('descendant processes outlived direct child')
+  try {
+    if (options.onProcess) {
+      const callbackResult = await raceProcessCallback(
+        () => options.onProcess!({ checkId: check.id, processId }),
+        { signal: options.signal, deadlineAt: checkDeadlineAt },
+      )
 
-    if (terminationReason && groupAlive() && killSentAt === undefined
-      && terminationRequestedAt !== undefined && now - terminationRequestedAt >= GRACE_MS) {
-      killSentAt = now
-      try { signalProcess(child, processId, 'SIGKILL') } catch { /* confirm via liveness poll */ }
+      if (callbackResult !== 'completed') {
+        const stopReason = callbackResult === 'aborted'
+          ? 'verification check cancelled'
+          : callbackResult === 'timed_out'
+            ? 'verification check timed out'
+            : 'process callback failed'
+        const stop = await stopOwnedWithProof(stopReason)
+        const result = snapshotResult(stopReason)
+        if (!stop.confirmed) {
+          return {
+            status: 'unknown',
+            terminalConfirmed: false,
+            failureCode: stop.failureCode,
+            result,
+          }
+        }
+        if (callbackResult === 'aborted') {
+          return { status: 'cancelled', terminalConfirmed: true, result }
+        }
+        if (callbackResult === 'timed_out') {
+          return {
+            status: 'infrastructure_failed',
+            terminalConfirmed: true,
+            failureCode: 'CHECK_TIMEOUT',
+            result,
+          }
+        }
+        return {
+          status: 'callback_failed',
+          terminalConfirmed: true,
+          result,
+        }
+      }
     }
 
-    const alive = groupAlive()
-    if (!alive && directExited && closeWaitStartedAt === undefined) closeWaitStartedAt = now
-    if (childClosed && !alive) break
+    let terminationReason: string | undefined
+    let terminationRequestedAt: number | undefined
+    let killSentAt: number | undefined
+    let closeWaitStartedAt: number | undefined
+    let cancelRequested = false
+    const groupAlive = (): boolean => (POSIX ? processGroupAlive(processId) : !directExited)
 
-    const killExpired = killSentAt !== undefined && now - killSentAt >= POST_KILL_MS
-    const closeExpired = closeWaitStartedAt !== undefined && now - closeWaitStartedAt >= CLOSE_WAIT_MS
-    if (killExpired || closeExpired) {
-      acceptingOutput = false
-      child.stdout.destroy()
-      child.stderr.destroy()
-      finishRedactors()
-      if (alive) {
-        try { signalProcess(child, processId, 'SIGKILL') } catch { /* final attempt */ }
+    const requestStop = (reason: string, cancelled = false): void => {
+      if (terminationReason) return
+      terminationReason = reason
+      cancelRequested = cancelled
+      terminationRequestedAt = Date.now()
+      try { signalProcess(child!, processId, 'SIGTERM') } catch { /* escalate to SIGKILL */ }
+    }
+
+    for (;;) {
+      const now = Date.now()
+      if (!terminationReason && options.signal?.aborted) requestStop('verification check cancelled', true)
+      if (!terminationReason && outputExceeded) requestStop('combined output limit exceeded')
+      if (!terminationReason && now >= checkDeadlineAt) requestStop('verification check timed out')
+      if (!terminationReason && directExited && groupAlive()) requestStop('descendant processes outlived direct child')
+
+      if (terminationReason && groupAlive() && killSentAt === undefined
+        && terminationRequestedAt !== undefined && now - terminationRequestedAt >= GRACE_MS) {
+        killSentAt = now
+        try { signalProcess(child, processId, 'SIGKILL') } catch { /* confirm via liveness poll */ }
+      }
+
+      const alive = groupAlive()
+      if (!alive && directExited && closeWaitStartedAt === undefined) closeWaitStartedAt = now
+      // Close-confirm proof requires direct exit + stream close + group absence.
+      if (childClosed && directExited && !alive) break
+
+      const killExpired = killSentAt !== undefined && now - killSentAt >= POST_KILL_MS
+      const closeExpired = closeWaitStartedAt !== undefined && now - closeWaitStartedAt >= CLOSE_WAIT_MS
+      const absoluteExpired = terminationRequestedAt !== undefined
+        && now - terminationRequestedAt >= TERMINATION_BOUND_MS
+      if (killExpired || closeExpired || absoluteExpired) {
+        acceptingOutput = false
+        child.stdout.destroy()
+        child.stderr.destroy()
+        finishRedactors()
+        if (alive) {
+          try { signalProcess(child, processId, 'SIGKILL') } catch { /* final attempt */ }
+        }
+        const failureCode = alive
+          ? 'PROCESS_GROUP_ALIVE'
+          : (!directExited || !childClosed ? 'STREAM_UNCONFIRMED' : 'PROCESS_UNCONFIRMED')
+        const reason = alive
+          ? 'surviving process-group members could not be ruled out'
+          : (terminationReason ?? 'child stream closure could not be confirmed')
+        if (options.awaitStartupConfirmation) {
+          return {
+            status: 'unknown',
+            terminalConfirmed: false,
+            failureCode,
+            result: snapshotResult(reason),
+          }
+        }
+        return finishedOutcome(snapshotResult(reason))
+      }
+
+      await sleep(LOOP_MS)
+    }
+
+    acceptingOutput = false
+    child.stdout.destroy()
+    child.stderr.destroy()
+    finishRedactors()
+
+    const result = (() => {
+      const durationMs = Math.max(0, Date.now() - started)
+      const code = exitCode ?? null
+      const signal = exitSignal ?? null
+      if (terminationReason) {
+        return { id: check.id, exitCode: code, signal, durationMs, stdout, stderr, reason: terminationReason }
+      }
+      if (code === 0 && signal === null) {
+        return { id: check.id, exitCode: 0, signal: null, durationMs, stdout, stderr }
       }
       return {
         id: check.id,
-        exitCode: exitCode ?? null,
-        signal: exitSignal ?? null,
-        durationMs: Math.max(0, Date.now() - started),
+        exitCode: code,
+        signal,
+        durationMs,
         stdout,
         stderr,
-        reason: alive
-          ? 'surviving process-group members could not be ruled out'
-          : (terminationReason ?? 'child stream closure could not be confirmed'),
+        reason: signal ? `process exited on signal ${signal}` : `process exited with code ${String(code)}`,
+      }
+    })()
+
+    if (cancelRequested) {
+      return { status: 'cancelled', terminalConfirmed: true, result }
+    }
+    return finishedOutcome(result)
+  } catch {
+    // Unexpected monitor errors stay unknown even when stop appears confirmed — never synthesize failed.
+    const stop = await stopOwnedWithProof('owned check monitoring failed')
+    if (!stop.confirmed) {
+      return {
+        status: 'unknown',
+        terminalConfirmed: false,
+        failureCode: stop.failureCode,
+        result: snapshotResult('owned check monitoring failed'),
       }
     }
-
-    await sleep(LOOP_MS)
+    return {
+      status: 'unknown',
+      terminalConfirmed: false,
+      failureCode: 'PROCESS_UNCONFIRMED',
+      result: snapshotResult('owned check monitoring failed'),
+    }
   }
+}
 
-  acceptingOutput = false
-  child.stdout.destroy()
-  child.stderr.destroy()
-  finishRedactors()
-
-  const durationMs = Math.max(0, Date.now() - started)
-  const code = exitCode ?? null
-  const signal = exitSignal ?? null
-  if (terminationReason) {
-    return { id: check.id, exitCode: code, signal, durationMs, stdout, stderr, reason: terminationReason }
-  }
-  if (code === 0 && signal === null) {
-    return { id: check.id, exitCode: 0, signal: null, durationMs, stdout, stderr }
-  }
+async function runCheck(
+  check: VerificationCheckRequest,
+  cwd: string,
+): Promise<VerificationCheckResult> {
+  const outcome = await runOwnedCheck(check, cwd, { awaitStartupConfirmation: false })
+  if (outcome.result) return outcome.result
   return {
     id: check.id,
-    exitCode: code,
-    signal,
-    durationMs,
-    stdout,
-    stderr,
-    reason: signal ? `process exited on signal ${signal}` : `process exited with code ${String(code)}`,
+    exitCode: null,
+    signal: null,
+    durationMs: 0,
+    stdout: '',
+    stderr: '',
+    reason: outcome.status === 'unknown' ? outcome.failureCode : 'verification check failed',
   }
 }
 
@@ -530,7 +859,7 @@ export class LocalVerifier {
     this.artifactStore = options.artifactStore
   }
 
-  async verify(input: VerifyInput): Promise<VerificationReport> {
+  private async prepareVerification(input: VerifyInput): Promise<PreparedVerification> {
     const request = parseVerifyInput(input)
     if (!POSIX) fail('Reliable verification process-group control currently requires POSIX')
 
@@ -555,6 +884,38 @@ export class LocalVerifier {
       fail('Verification root must not overlap artifact files')
     }
 
+    return {
+      request,
+      verificationRoot,
+      artifactRoot,
+      destination,
+      artifactFilesRoot,
+      manifest,
+    }
+  }
+
+  private buildReport(
+    request: VerifyInput,
+    state: VerificationState,
+    checks: VerificationCheckResult[],
+    createdAt: string,
+  ): VerificationReport {
+    return {
+      verificationId: request.verificationId,
+      executionId: request.executionId,
+      artifactId: request.artifactId,
+      artifactRevision: request.artifactRevision,
+      state,
+      checks,
+      createdAt,
+      ...(state === 'not_required' && request.waiveReason !== undefined ? { waiveReason: request.waiveReason } : {}),
+    }
+  }
+
+  async verify(input: VerifyInput): Promise<VerificationReport> {
+    const prepared = await this.prepareVerification(input)
+    const { request, destination, artifactFilesRoot, manifest } = prepared
+
     await mkdir(destination, { mode: 0o700 })
     let finalized = false
     try {
@@ -562,16 +923,7 @@ export class LocalVerifier {
       const reportPath = join(destination, REPORT_FILE)
 
       if (request.checks.length === 0) {
-        const report: VerificationReport = {
-          verificationId: request.verificationId,
-          executionId: request.executionId,
-          artifactId: request.artifactId,
-          artifactRevision: request.artifactRevision,
-          state: 'not_required',
-          waiveReason: request.waiveReason!,
-          checks: [],
-          createdAt,
-        }
+        const report = this.buildReport(request, 'not_required', [], createdAt)
         await persistReport(reportPath, report)
         finalized = true
         return report
@@ -592,15 +944,7 @@ export class LocalVerifier {
         }
       }
 
-      const report: VerificationReport = {
-        verificationId: request.verificationId,
-        executionId: request.executionId,
-        artifactId: request.artifactId,
-        artifactRevision: request.artifactRevision,
-        state,
-        checks: results,
-        createdAt,
-      }
+      const report = this.buildReport(request, state, results, createdAt)
       await persistReport(reportPath, report)
       finalized = true
       return report
@@ -609,5 +953,151 @@ export class LocalVerifier {
         await rm(destination, { recursive: true, force: true })
       }
     }
+  }
+
+  async verifySupervised(
+    input: VerifyInput,
+    options: VerificationSupervisionOptions,
+  ): Promise<SupervisedVerificationResult> {
+    let supervision: VerificationSupervisionOptions
+    try {
+      supervision = parseSupervisionOptions(options)
+    } catch {
+      return { status: 'failed', terminalConfirmed: true, failureCode: 'INVALID_INPUT' }
+    }
+
+    if (supervision.signal.aborted) {
+      return { status: 'cancelled', terminalConfirmed: true, failureCode: 'CANCELLED' }
+    }
+
+    let prepared: PreparedVerification
+    try {
+      prepared = await this.prepareVerification(input)
+    } catch (error) {
+      return { status: 'failed', terminalConfirmed: true, failureCode: classifyPreflightFailure(error) }
+    }
+
+    if (supervision.signal.aborted) {
+      return { status: 'cancelled', terminalConfirmed: true, failureCode: 'CANCELLED' }
+    }
+
+    const { request, destination, artifactFilesRoot, manifest } = prepared
+    let ownedProcessSeen = false
+
+    try {
+      await mkdir(destination, { mode: 0o700 })
+      const createdAt = new Date().toISOString()
+      const reportPath = join(destination, REPORT_FILE)
+
+      if (request.checks.length === 0) {
+        if (supervision.signal.aborted) {
+          return { status: 'cancelled', terminalConfirmed: true, failureCode: 'CANCELLED' }
+        }
+        const report = this.buildReport(request, 'not_required', [], createdAt)
+        try {
+          await persistReport(reportPath, report)
+        } catch {
+          return { status: 'failed', terminalConfirmed: true, failureCode: 'REPORT_PERSIST_FAILED' }
+        }
+        if (supervision.signal.aborted) {
+          return { status: 'cancelled', terminalConfirmed: true, failureCode: 'CANCELLED' }
+        }
+        return { status: 'completed', terminalConfirmed: true, report }
+      }
+
+      if (supervision.signal.aborted) {
+        return { status: 'cancelled', terminalConfirmed: true, failureCode: 'CANCELLED' }
+      }
+
+      const workspace = join(destination, WORKSPACE_DIRECTORY)
+      await mkdir(workspace, { mode: 0o700 })
+      await copyArtifactFiles(artifactFilesRoot, workspace, manifest.files)
+
+      if (supervision.signal.aborted) {
+        return { status: 'cancelled', terminalConfirmed: true, failureCode: 'CANCELLED' }
+      }
+
+      const results: VerificationCheckResult[] = []
+      let state: VerificationState = 'passed'
+      // Supervised aggregate output is bounded to 1MiB total across checks (legacy remains per-check).
+      let remainingOutputBytes = MAX_OUTPUT_BYTES
+
+      for (const check of request.checks) {
+        if (supervision.signal.aborted) {
+          return { status: 'cancelled', terminalConfirmed: true, failureCode: 'CANCELLED' }
+        }
+
+        const outcome = await runOwnedCheck(check, workspace, {
+          awaitStartupConfirmation: true,
+          signal: supervision.signal,
+          maxOutputBytes: remainingOutputBytes,
+          ...(supervision.onProcess ? { onProcess: supervision.onProcess } : {}),
+        })
+        if (outcome.result !== undefined) ownedProcessSeen = true
+
+        if (outcome.status === 'unknown') {
+          return {
+            status: 'unknown',
+            terminalConfirmed: false,
+            failureCode: outcome.failureCode,
+          }
+        }
+
+        if (outcome.status === 'cancelled') {
+          return { status: 'cancelled', terminalConfirmed: true, failureCode: 'CANCELLED' }
+        }
+
+        if (outcome.status === 'callback_failed') {
+          return { status: 'failed', terminalConfirmed: true, failureCode: 'PROCESS_CALLBACK_FAILED' }
+        }
+
+        if (outcome.status === 'infrastructure_failed') {
+          return {
+            status: 'failed',
+            terminalConfirmed: true,
+            failureCode: outcome.failureCode,
+          }
+        }
+
+        results.push(outcome.result)
+        // Debit raw accepted bytes only — redacted report strings compress/expand and must not drive the budget.
+        remainingOutputBytes = Math.max(0, remainingOutputBytes - outcome.acceptedOutputBytes)
+        if (outcome.result.reason !== undefined || outcome.result.exitCode !== 0 || outcome.result.signal !== null) {
+          state = 'failed'
+          break
+        }
+      }
+
+      if (supervision.signal.aborted) {
+        return { status: 'cancelled', terminalConfirmed: true, failureCode: 'CANCELLED' }
+      }
+
+      const report = this.buildReport(request, state, results, createdAt)
+      try {
+        await persistReport(reportPath, report)
+      } catch {
+        return { status: 'failed', terminalConfirmed: true, failureCode: 'REPORT_PERSIST_FAILED' }
+      }
+
+      if (supervision.signal.aborted) {
+        return { status: 'cancelled', terminalConfirmed: true, failureCode: 'CANCELLED' }
+      }
+
+      return { status: 'completed', terminalConfirmed: true, report }
+    } catch (error) {
+      if (ownedProcessSeen) {
+        return {
+          status: 'unknown',
+          terminalConfirmed: false,
+          failureCode: 'PROCESS_UNCONFIRMED',
+        }
+      }
+      return {
+        status: 'failed',
+        terminalConfirmed: true,
+        failureCode: classifyPreflightFailure(error),
+      }
+    }
+    // Supervised mode retains partial evidence on the destination; never delete it here.
   }
 }

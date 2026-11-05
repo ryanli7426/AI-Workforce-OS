@@ -1,4 +1,5 @@
 /** Single-owner local Task application boundary over Core Engine + LocalStore. */
+import type { VerificationProvenance } from '../core/lifecycle-model.ts'
 import { createHash } from 'node:crypto'
 import { RuleAssessor, type Rule } from '../assessor/rules.ts'
 import { createLocalEngine } from '../core/local.ts'
@@ -39,6 +40,7 @@ export interface VerifyTaskInput {
   artifactRevision: string
   state: 'passed' | 'failed' | 'not_required'
   reason: string
+  provenance?: VerificationProvenance
 }
 
 export interface ReviewTaskInput {
@@ -232,6 +234,8 @@ function ownerScope(workspaceId: string): SourceScope {
 /** Trusted local owner application service. constructor ownerId is authenticated OS/app config, never Issue text. */
 export class LocalTaskService {
   readonly engine: Engine
+  /** Current trusted policy snapshot, for exact-version evidence application. */
+  get currentPolicyVersion(): string { return this.policyVersion }
   private readonly store: LocalStore
   private readonly ownerId: string
   private readonly workspaceId: string
@@ -416,7 +420,7 @@ export class LocalTaskService {
   }
 
   verify(id: string, input: VerifyTaskInput): Ticket {
-    const body = requireExactObject(input, ['executionId', 'artifactRevision', 'state', 'reason'], [], 'verify')
+    const body = requireExactObject(input, ['executionId', 'artifactRevision', 'state', 'reason'], ['provenance'], 'verify')
     requireText(body.executionId, 'executionId', 512)
     requireText(body.artifactRevision, 'artifactRevision', 512)
     if (body.state !== 'passed' && body.state !== 'failed' && body.state !== 'not_required') {
@@ -430,6 +434,7 @@ export class LocalTaskService {
       state: body.state,
       actor: this.ownerId,
       reason: body.reason as string,
+      ...(body.provenance === undefined ? {} : {provenance: body.provenance as VerificationProvenance}),
     })
   }
 

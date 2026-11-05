@@ -1,4 +1,5 @@
 import type { ManagementCommand, ManagementResult, ManagementAudit } from '../../src/application/management-commands.ts'
+import { createVerificationApi, type VerificationApi } from './verification-api.ts'
 export type { ManagementCommand, ManagementResult, ManagementAudit } from '../../src/application/management-commands.ts'
 import type { ProductOverview, ProductTaskListOptions, ProductTaskListResult, ProductTaskDetail, ProductExecutionListOptions, ProductExecutionListResult } from '../../src/application/product-queries.ts'
 import type { LocalTaskCommand, TaskCommandResult } from '../../src/application/task-commands.ts'
@@ -9,6 +10,7 @@ import type { ExecutionLogsResult } from '../../src/observability/execution-logs
 export type { ProductOverview, ProductTaskListOptions, ProductTaskListResult, ProductTaskDetail, ProductExecutionListOptions, ProductExecutionListResult, LocalTaskCommand, TaskCommandResult, Employee, Project, ExecutionRecord, ExecutionLogsResult }
 export interface Principal { ownerId: string; workspaceId: string; role: 'owner' }
 export interface ApiClient {
+  verification?: VerificationApi
   executions(options?: ProductExecutionListOptions, signal?: AbortSignal): Promise<ProductExecutionListResult>
   manage(key: string, command: ManagementCommand, signal?: AbortSignal): Promise<ManagementResult>
   managementHistory(kind: 'employee' | 'project', id: string, signal?: AbortSignal): Promise<{items: ManagementAudit[]}>
@@ -648,6 +650,7 @@ export function createApiClient(token: string): ApiClient {
   }
 
   const client: ApiClient = {
+    verification: createVerificationApi({request}),
     async executions(options = {}, signal) {
       const params = new URLSearchParams()
       for (const key of Object.keys(options)) if (!['limit','beforeRowid','states','projectId','employeeId','ticketId'].includes(key)) throw new ApiError('INVALID_REQUEST',400)

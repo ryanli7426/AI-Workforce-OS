@@ -1,6 +1,7 @@
 /** Authenticated local HTTP application transport. Factory never listens, migrates, or starts Runtime. */
 import { isAbsolute } from 'node:path'
 import { registerManagementRoutes } from './management-routes.ts'
+import { registerVerificationRoutes } from './verification-routes.ts'
 import { loadWebAssets } from './web-assets.ts'
 import Fastify, {
   type FastifyInstance,
@@ -530,6 +531,7 @@ export function createApiServer(options: CreateApiServerOptions): FastifyInstanc
   })
 
   registerManagementRoutes(app, {store,settings})
+  registerVerificationRoutes(app, {store,settings,dataDir})
   webAssets?.register(app)
 
   app.get('/api/v1/health', {

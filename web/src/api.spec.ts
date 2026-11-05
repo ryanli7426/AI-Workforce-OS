@@ -179,6 +179,19 @@ describe('createApiClient', () => {
 })
 
 describe('ApiClient routes', () => {
+  it('composes verification with the same private authenticated transport and the actual 202 receipt', async () => {
+    installFetch()
+    fetchImpl = async () => jsonResponse(202,{verificationId:'v-real-receipt',replayed:false})
+    const verification=client().verification!
+    await expect(verification.create('ticket-1','verify-command-1',{
+      expectedVersion:5,executionId:'exec-1',artifactRevision:'a'.repeat(64),planId:'docs.content',planRevision:'v1.0',reason:'Independent artifact checks',
+    })).resolves.toEqual({verificationId:'v-real-receipt',replayed:false})
+    expect(urlOf(lastCall().input)).toBe('/api/v1/tasks/ticket-1/verifications')
+    expect(new Headers(lastCall().init?.headers).get('Idempotency-Key')).toBe('verify-command-1')
+    assertAuthHeaders(lastCall().init)
+    fetchImpl = async () => jsonResponse(202,{job:{},replayed:false})
+    await expect(verification.cancel('v-real-receipt','cancel-1',{expectedVersion:2,reason:'Stop'})).rejects.toMatchObject({code:'INVALID_RESPONSE'})
+  })
   it('GET /api/v1/me', async () => {
     installFetch()
     fetchImpl = async () => jsonResponse(200, { ownerId: 'owner-1', workspaceId: 'ws-1', role: 'owner' })

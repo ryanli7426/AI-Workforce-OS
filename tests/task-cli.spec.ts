@@ -26,22 +26,46 @@ import { ProjectRepository } from '../src/projects/projects.ts'
 import { initializeApplicationSchema } from '../src/storage/application-store.ts'
 import { LocalStore } from '../src/storage/store.ts'
 import { EmployeeRepository } from '../src/workforce/employees.ts'
+import { ExecutionRepository } from '../src/execution/repository.ts'
+import { RunnerClient } from '../src/runner/client.ts'
+import { acquireControllerLease } from '../src/application/controller-lease.ts'
 
 const FIXTURE = resolve('tests/fixtures/claude-task-cli.mjs')
 
 let root: string
 const opened: LocalStore[] = []
+const dataDirs: string[] = []
 
 beforeEach(() => {
   root = realpathSync(mkdtempSync(join(tmpdir(), 'task-cli-')))
 })
 
-afterEach(() => {
+afterEach(async () => {
+  // run-once intentionally detaches. Stop/observe owned fresh fixtures before deleting their files.
+  for (const dataDir of dataDirs.splice(0)) {
+    const store = new LocalStore(join(dataDir, 'workforce.sqlite'))
+    let ids: string[]
+    try { ids = new ExecutionRepository(store.db).list().map(item => item.executionId) } finally { store.close() }
+    const runner = new RunnerClient({ root: join(dataDir, 'runners') })
+    for (const id of ids) {
+      const terminal = new Set(['SUCCEEDED','FAILED','TIMED_OUT','CANCELLED'])
+      let state = await runner.status(id)
+      if (!terminal.has(state.state)) {
+        await runner.stop(id, 'Owned Task CLI fixture cleanup')
+        const deadline = Date.now() + 8_000
+        while (!terminal.has(state.state) && Date.now() < deadline) {
+          await new Promise(resolve => setTimeout(resolve, 25))
+          state = await runner.status(id)
+        }
+      }
+      if (!terminal.has(state.state)) throw new Error('Owned Task CLI fixture has no confirmed terminal proof; preserving evidence')
+    }
+  }
   for (const store of opened.splice(0)) {
     try { store.close() } catch { /* ignore */ }
   }
   rmSync(root, { recursive: true, force: true })
-})
+}, 15_000)
 
 async function run(...argv: string[]) {
   let stdout = ''
@@ -87,6 +111,7 @@ function initDataDir(name = 'data'): string {
   const dataDir = join(root, name)
   mkdirSync(dataDir, { recursive: true, mode: 0o700 })
   chmodSync(dataDir, 0o700)
+  dataDirs.push(dataDir)
   const store = new LocalStore(join(dataDir, 'workforce.sqlite'))
   opened.push(store)
   initializeApplicationSchema(store)
@@ -530,6 +555,18 @@ describe('executions readonly', () => {
 })
 
 describe('run-once fixture', () => {
+  it('refuses a tick while the foreground controller lease is owned', async () => {
+    const dataDir = initDataDir('owned-controller')
+    await configure(dataDir)
+    const lease = acquireControllerLease({dataDir})
+    try {
+      const once = await run('run-once','--data-dir',dataDir)
+      expect(once.code).toBe(1)
+      expect(once.stdout).toBe('')
+      const store = new LocalStore(join(dataDir,'workforce.sqlite'))
+      try {expect(new ExecutionRepository(store.db).list()).toEqual([])} finally {store.close()}
+    } finally {lease.release()}
+  })
   it('ticks once with the local mock Claude fixture and forwards runtime graceMs', async () => {
     expect(existsSync(FIXTURE)).toBe(true)
     chmodSync(FIXTURE, 0o755)

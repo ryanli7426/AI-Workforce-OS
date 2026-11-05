@@ -14,6 +14,7 @@ import type { EmployeeCreateInput } from '../workforce/employees.ts'
 import { runTaskCommand } from './task-commands.ts'
 import { runControllerCommand } from './controller-commands.ts'
 import { runApiCommand } from './api-commands.ts'
+import { runVerificationCommand } from './verification-commands.ts'
 
 export interface CliIO {
   stdout: { write(value: string): unknown }
@@ -43,6 +44,11 @@ Commands:
   run-once               Schedule and reconcile one authorized tick
   executions             List durable execution records
   task-verify ID         Run --checks-file JSONFILE or --waive (--reason TEXT)
+  verification-plans-init Register trusted local plans (--file PRIVATE_JSON)
+  verification-plans     List registered verification plan metadata
+  verification-create ID Enqueue checks for exact Task/version/execution/artifact
+  verification-status ID Show durable verification job and audit
+  verification-cancel ID Request cancellation (--expected-version N --reason TEXT --key KEY)
   task-review ID         Review exact --execution-id and --artifact-revision
                          (--decision approved|rejected --reason TEXT)
   start --foreground     Run the local controller in this terminal
@@ -418,7 +424,7 @@ function isMainModule(): boolean {
 
 /** Async application entry; the legacy synchronous management dispatcher remains importable. */
 export async function runApplicationCli(argv: readonly string[], io: CliIO = process): Promise<number> {
-  return await runApiCommand(argv, io) ?? await runControllerCommand(argv, io) ?? await runTaskCommand(argv, io) ?? runCli(argv, io)
+  return runVerificationCommand(argv, io) ?? await runApiCommand(argv, io) ?? await runControllerCommand(argv, io) ?? await runTaskCommand(argv, io) ?? runCli(argv, io)
 }
 
 if (isMainModule()) process.exitCode = await runApplicationCli(process.argv.slice(2))

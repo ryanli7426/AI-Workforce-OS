@@ -163,6 +163,37 @@ node dist/cli/index.js api-serve --data-dir .workforce --port 4310
 
 API 前缀 `/api/v1`：GET health/me/overview/employees/projects/tasks/tasks/:id/executions/:id/tasks/:id/logs；POST tasks、tasks/:id/approve|reject|cancel|retry|review。任务列表支持状态、项目、员工和有界游标分页。详细请求契约见 tasks/CURSOR_HTTP_API.md 和实际 JSON schema。
 
-所有写请求需 `Idempotency-Key`；非创建操作还需当前 `expectedVersion`。相同键及请求重放返回原提交结果，键冲突或版本冲突返回409。请求人由服务端 Owner 确定。命令回执与状态变更同一事务提交；API 不启动 Agent 或控制器。验证仍使用 task-verify CLI；不能通过写入 passed 字段绕过验证。SIGINT/SIGTERM 仅关闭 API，保留独立控制器与 Runner。
+所有写请求需 `Idempotency-Key`；非创建操作还需当前 `expectedVersion`。相同键及请求重放返回原提交结果，键冲突或版本冲突返回409。请求人由服务端 Owner 确定。命令回执与状态变更同一事务提交；API 不启动 Agent 或控制器。验证可通过可信计划异步入队；旧 task-verify 仍提供同步本地检查与显式豁免。API 不接受 passed 字段。SIGINT/SIGTERM 仅关闭 API，保留独立控制器与 Runner。
 
-真实编译后 TCP 验收通过，证据见 reviews/r1/HTTP_API_PILOT.json。首批 Web 的同源启动和真实页面操作见 [Web 操作说明](WEB_OPERATIONS.md)。员工/项目写API与Web治理操作已交付，需显式init增加management-schema1；SSE、异步验证 API、多用户身份和真实钉钉闭环尚未交付。
+真实编译后 TCP 验收通过，证据见 reviews/r1/HTTP_API_PILOT.json。首批 Web 的同源启动和真实页面操作见 [Web 操作说明](WEB_OPERATIONS.md)。员工/项目写API与Web治理操作已交付，需显式init增加management-schema1；异步验证接线见下节；SSE、多用户身份和真实钉钉闭环尚未交付。
+
+## 持久异步验证（R1-C）
+
+更新现有数据目录须先显式 init 安装 verification-schema1。API/CLI查询不会安装或修复schema。可信计划从本机私有JSON一次性注册，API和Web只选择id/revision，不接受任意命令、环境变量或passed结果。
+
+计划输入文件格式（先将命令改为实际Node二进制绝对路径；文件权限0600）：
+
+```json
+{"plans":[{"id":"artifact-content","revision":"v1","checks":[{"id":"readme","command":"/absolute/path/to/node","args":["-e","require('node:fs').accessSync('README.md')"],"timeoutMs":5000}]}]}
+```
+
+```sh
+node dist/cli/index.js init --data-dir .workforce
+node dist/cli/index.js verification-plans-init --data-dir .workforce --file /absolute/path/to/private-plans.json
+node dist/cli/index.js verification-plans --data-dir .workforce
+node dist/cli/index.js verification-create TICKET_ID --data-dir .workforce --plan artifact-content --plan-revision v1 --expected-version TASK_VERSION --execution-id EXECUTION_ID --artifact-revision ARTIFACT_SHA256 --reason "检查当前交付产物" --key OWNER_COMMAND_ID
+node dist/cli/index.js verification-status VERIFICATION_ID --data-dir .workforce
+node dist/cli/index.js verification-cancel VERIFICATION_ID --data-dir .workforce --expected-version JOB_VERSION --reason "停止本次检查" --key CANCEL_COMMAND_ID
+```
+
+注册拒绝覆盖已有 verification-plans.json。同一工作区/Owner已使用的id/revision不能换成不同命令；内容变更使用新revision。当前注册器只负责首次创建，后续可信配置更新仍需本机Owner人工维护、保留旧revision并重启API以载入快照，不提供Web任意改命令入口。检查命令是本机Owner信任的代码；不要在命令参数中写凭证。检查进程只继承基础环境，不获得Runtime认证白名单。
+
+持续运行 start --foreground 或单次 run-once 会同时对账和调度执行任务与验证队列；两者共享Controller占用，不能并发调度。验证并发池上限使用settings.scheduler.maxConcurrency，与Agent执行池分别计数。API本身只入队；Controller停止时QUEUED保持等待，已启动的独立验证继续运行。
+
+每个验证固定Task版本、策略版本、执行ID、产物修订及完整计划，复制经过校验的产物后运行。COMPLETED/outcome failed表示检查确实失败；FAILED表示基础设施故障；UNKNOWN表示无法证明原进程及检查组已结束，继续占用且不会自动重跑。取消请求只写意图，需Controller送达并收集退出证据。若启动早期被杀、包装进程被SIGKILL或结果文件缺失，可能保守进入UNKNOWN；不得删除输入目录、清锁或换ID绕过占用。
+
+重启只观察原Runner。只有外层Runner实际终止且签名结果有效才释放验证占用；匹配当前Task/策略/执行/产物时，检查证据、来源审计与应用状态同事务提交，Task保持REVIEW。中途Task或策略已变化则记录superseded，不覆盖较新证据。最后仍需Owner对准确产物显式task-review或Web审核。
+
+验证私有证据位于verification-inputs、verification-runners和verifications；input.json包含控制密钥，不应展示、提交或分享。HMAC证明同用户控制平面的结果来源，不提供对恶意同用户可执行文件的OS隔离。平台仍需Runtime范围加固与长期运行验收。
+
+认证API新增：GET verification-plans；POST tasks/:id/verifications；GET tasks/:id/verifications（limit/beforeRowid）；GET verifications/:id；POST verifications/:id/cancel。写请求需Idempotency-Key与明确版本，返回202及verificationId/replayed；入队成功不表示工作进程已启动。计划与作业查询只公开检查元信息，不公开命令参数或签名密钥。完整实现和异常测试见reviews/r1c与tests/verification-*。

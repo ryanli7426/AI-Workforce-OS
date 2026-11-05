@@ -103,3 +103,11 @@ Cursor 累计 **29路独立任务**：本批3路实现加1路独立审查，既�
 Cursor Auto 本批3路实现：management-service、management-http、management-web，均已返修并经父 Agent集成；累计32路。Pi新增执行列表查询；Codex明确gpt-5.6-sol做异步验证架构只读审查；Claude Code对父 Agent集成做独立Read-only审计。父 Agent完成资源回执完整快照校验、编辑快照/冲突、归档绑定、错误分类、UI拆分、HTTP/browser client与真实E2E。
 
 证据见 reviews/r1b。下一路Cursor已启动verification-jobs，仅拥有任务模型/存储/测试，累计派发33路，其中该路仍在实施，不能计为完成。异步验证尚无产品闭环；先完成持久性与UNKNOWN占用，再开发独立worker、对账、API和Web。
+
+## 第八批：持久异步验证（R1-C）
+
+Cursor Auto新增6路独立实现（含上批已登记的storage一路）：verification-jobs、verification-engine、verification-transport、verification-api、verification-cli、verification-web。累计38路独立任务；同一任务返修不重复计数。6路已交付并经父Agent修正/集成，Web初稿的202响应契约问题已返修并经真实浏览器验证。历史累计不代表当前并发。
+
+Codex两路明确gpt-5.6-sol：命令/Core provenance测试，以及真实TCP+编译后独立验证进程的API/DB重启验收。pi只读审查契约；Claude Code提供Coordinator测试和启动身份回执缺陷。父Agent完成队列/对账/原子证据应用、Controller/CLI接线、策略变更处理、可信文件读取加固、初稿错误修复以及真实浏览器验收。
+
+回执、逐项处置及最终门禁位于reviews/r1c。四项真实独立worker集成与页面入队/检查/明确验收通过，仍不代表完整产品、真实钉钉或72小时运行验收。

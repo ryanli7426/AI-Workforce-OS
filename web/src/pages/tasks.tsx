@@ -10,6 +10,7 @@ import type {
   TaskCommandResult,
 } from '../api.ts'
 import { AsyncState, PageHeader, StatusBadge, formatTime } from '../shared.tsx'
+import { TaskVerification } from './task-verification.tsx'
 
 const SAFE_ID = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/
 const MAX_TITLE = 512
@@ -751,7 +752,7 @@ export function TaskPage({ api, ticketId }: TaskPageProps) {
                   </p>
                   <p className="muted">{result.summary}</p>
                   <p className="muted">
-                    验证需独立完成（当前由 CLI 执行）；本界面仅展示结果。
+                    选择下方可信验证计划检查交付产物；检查结果与最终人工审核分别记录。
                   </p>
                 </div>
               )}
@@ -802,6 +803,8 @@ export function TaskPage({ api, ticketId }: TaskPageProps) {
                 </AsyncState>
               )}
             </section>
+
+            {api.verification && <TaskVerification key={detail.ticket.id} api={api.verification} ticket={detail.ticket} />}
 
             <section className="panel" aria-label="任务操作">
               <h2>操作</h2>

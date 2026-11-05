@@ -85,3 +85,11 @@ pnpm check
 项目归档保留历史，只阻止未来接入。仓库路径创建时验证真实Git根，工作树根与仓库分离；此预检在事务外完成。业务负责人字段不改变Workspace的访问权限。当前Web员工创建只提供默认claude-local，其他已配置实例可用CLI，统一Runtime注册与选择器后续交付。
 
 执行中心现在可按实际执行状态、项目、员工和关联任务筛选并分页；权限过滤先于分页。列表中的进程结果不改变任务的验证或验收状态。管理完整浏览器验收见 reviews/r1b/MANAGEMENT_ACCEPTANCE.md。
+
+## 异步验证补充（R1-C）
+
+按LOCAL_OPERATIONS.md显式init并在本机注册可信计划后，重启API加载配置快照。任务详情“异步验证”选择计划、填写原因、预览准确Task版本/执行/产物，再确认入队。Controller需要独立运行；页面会显示QUEUED、STARTING/RUNNING、COMPLETED/FAILED/CANCELLED或UNKNOWN，按活跃状态轮询真实API。确认过程固定原版本；409刷新后需重新预览，不悄悄升级授权。网络重试沿用同一幂等键。
+
+已应用检查结果会刷新Task详情和审核按钮；过期结果显示已过时，无法证明终止时继续显示未知并保留占用。取消需确认Job版本和原因，页面先显示请求意图，等待真实退出。验证与最终审核分别记录；通过检查后仍需明确“审核通过”。Web不提供任意检查命令或修改passed的捷径，显式豁免保留在本机task-verify --waive流程。
+
+浏览器测试新增verification-flow.spec.ts：生产Web资产+编译CLI API+真实前台Controller+编译后独立检查进程+SQLite/Core+明确fixture审核。只使用自有临时项目，未调用模型或真实IM。原真实Claude任务仍保持REVIEW。截图与验收见reviews/r1c。

@@ -8,7 +8,7 @@ import { createLocalApiCredentials } from '../../src/api/auth.ts'
 import { createSettings, defaultSettings } from '../../src/config/settings.ts'
 import { initializeApplicationSchema } from '../../src/storage/application-store.ts'
 import { LocalStore } from '../../src/storage/store.ts'
-export async function localWorkspace() {
+export async function localWorkspace(prepare?: (fixture: {root:string;dataDir:string;repositoryPath:string}) => void | Promise<void>) {
  const root=realpathSync(mkdtempSync(join(tmpdir(),'workforce-managed-browser-')));chmodSync(root,0o700)
  const dataDir=join(root,'data');mkdirSync(dataDir,{mode:0o700})
  const repositoryPath=join(root,'repository');mkdirSync(repositoryPath,{mode:0o700})
@@ -20,15 +20,16 @@ export async function localWorkspace() {
  try {initializeApplicationSchema(store)} finally {store.close()}
  createSettings(join(dataDir,'settings.json'),defaultSettings({ownerId:'browser-owner',claudeCommand:'/usr/bin/true'}))
  createLocalApiCredentials(dataDir)
+ await prepare?.({root,dataDir,repositoryPath})
  const token=(JSON.parse(readFileSync(join(dataDir,'api-auth.json'),'utf8')) as {token:string}).token
  const child=spawn(process.execPath,[resolve('dist/cli/index.js'),'api-serve','--data-dir',dataDir,'--port','0','--web-root',resolve('web/dist')],{cwd:root,env:{PATH:process.env.PATH,HOME:root,LANG:'C'},stdio:['ignore','pipe','pipe']})
  let stdout='',stderr='';child.stdout.on('data',data=>stdout+=String(data));child.stderr.on('data',data=>stderr+=String(data))
- const stop=async()=>{
+ const stop=async(options:{preserveData?:boolean}={})=>{
   if(child.exitCode===null&&child.signalCode===null){
    const exited=once(child,'exit');child.kill('SIGTERM');let timer:ReturnType<typeof setTimeout>|undefined
    try{await Promise.race([exited,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('Owned API did not stop')),8_000)})])}finally{clearTimeout(timer)}
   }
-  rmSync(root,{recursive:true,force:true})
+  if(!options.preserveData)rmSync(root,{recursive:true,force:true})
  }
  let address:string|undefined
  const deadline=Date.now()+12_000
@@ -42,5 +43,5 @@ export async function localWorkspace() {
   if(response.status!==200)throw new Error('Owned fixture query failed')
   return await response.json() as unknown
  }
- return {address,token,repositoryPath,worktreeRoot:join(root,'worktrees'),request,stop,credentialAbsentFromOutput:()=>!(stdout+stderr).includes(token)}
+ return {address,token,dataDir,repositoryPath,worktreeRoot:join(root,'worktrees'),request,stop,credentialAbsentFromOutput:()=>!(stdout+stderr).includes(token)}
 }

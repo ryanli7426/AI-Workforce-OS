@@ -564,7 +564,7 @@ describe('TaskPage', () => {
     const first = render(wrap(<TaskPage api={apiBlocked} ticketId="task-1" />))
     expect((await screen.findByRole('button', { name: '审核通过' }) as HTMLButtonElement).disabled).toBe(true)
     expect(screen.getByRole('link', { name: 'exec-1' }).getAttribute('href')).toBe('#/executions/exec-1')
-    expect(screen.getByText(/验证需独立完成/)).toBeTruthy()
+    expect(screen.getByText(/检查结果与最终人工审核分别记录/)).toBeTruthy()
     expect(screen.queryByText(/伪造/)).toBeNull()
     first.unmount()
 

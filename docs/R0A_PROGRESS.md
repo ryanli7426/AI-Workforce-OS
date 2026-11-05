@@ -78,3 +78,7 @@
 - 编辑与确认绑定原快照，不被轮询悄悄覆盖；归档项目原绑定仍可见/可移除，资料修改仅发送实际变化的敏感字段。执行中心采用scope-before-pagination查询，UNKNOWN不提供直接重跑。
 - Cursor3实现路、Pi执行查询、Codex显式gpt-5.6-sol异步验证设计、Claude只读审计，父Agent集成修正与验收。最新完整门禁：45文件670项后端、8文件69项前端、2条真实Chromium流程，全通过。
 - 前后端类型/构建、独立Core/SQLite与编译后CLI smoke、依赖扫描通过。证据见 reviews/r1b。异步验证存储已委派，完整worker/API/Web尚未交付；目标保持继续推进。
+
+## R1-C增量
+
+可信计划异步验证已完成组合：VerificationJob独立于Assignment/Execution，工作进程独立于API和Controller，重启仅观察原任务；双重终止证据与签名报告绑定准确产物，Core应用与Job审计原子提交。CLI/Web入队、状态、取消与明确人工验收均有真实进程/浏览器测试。质量门禁详见reviews/r1c/CHECK.json。完整产品范围仍以DELIVERY_TRACKER为准；不将本次验证能力当作19模块完成。

@@ -260,6 +260,7 @@ describe('createApiServer factory', () => {
     const mutableAuthenticator = {
       authenticate: (header: unknown) => trusted.authenticate(header),
     }
+    mkdirSync(join(root, 'snap-data'), { mode: 0o700 })
     const server = createApiServer({
       store,
       settings: mutableSettings,

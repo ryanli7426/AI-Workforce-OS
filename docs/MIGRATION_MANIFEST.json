@@ -36,14 +36,14 @@
     {
       "path": "src/core/lifecycle-model.ts",
       "sha256": "817fa64b68bc91862a601a10db5ac239fb6600dd7e7f3e73615f64f5d85abb7f",
-      "currentSha256": "1b2b0adf876b726d7144a12bfea12dc8727f3a10b265613478b1c898dfd431ef",
-      "modificationReason": "B0 review fixes: observed source revision/closure, database read-before-write preflight, and regression coverage."
+      "currentSha256": "1324ccf8bf222893f1643766a2dda6fe6fc5248cded0cf17e158c7bc58c79a72",
+      "modificationReason": "B0 review fixes: observed source revision/closure, database read-before-write preflight, and regression coverage. R1-C: additive validated verification provenance in audit, plus current policy revalidation before applying evidence; Core remains runtime/storage/HTTP independent."
     },
     {
       "path": "src/core/lifecycle.ts",
       "sha256": "6a131ff3e0005db02639b90c0012d5565c7a3b1b657a6b20a82c72238b8c5f12",
-      "currentSha256": "5698be777962b205a9e5f7def9330f76a024639436dc3536a67ff027029da0be",
-      "modificationReason": "B0 review fixes: observed source revision/closure, database read-before-write preflight, and regression coverage."
+      "currentSha256": "493605ee8afcfc8e599b02c79eae66d72136020a3c1b08f417ae9a49d0de6dce",
+      "modificationReason": "B0 review fixes: observed source revision/closure, database read-before-write preflight, and regression coverage. R1-C: additive validated verification provenance in audit, plus current policy revalidation before applying evidence; Core remains runtime/storage/HTTP independent."
     },
     {
       "path": "src/core/local.ts",

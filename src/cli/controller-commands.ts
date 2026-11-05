@@ -26,6 +26,7 @@ import {
   requestControllerStop,
 } from '../application/controller-lease.ts'
 import { LocalOrchestrator } from '../application/local-orchestrator.ts'
+import { composeController } from '../application/controller.ts'
 import { LocalTaskService } from '../application/tasks.ts'
 import { loadSettings, type LocalSettings } from '../config/settings.ts'
 import { readExecutionLogs } from '../observability/execution-logs.ts'
@@ -646,7 +647,7 @@ async function handleStart(parsed: StartCommand, io: ControllerCliIO): Promise<n
     }
 
     summary = await runControlLoop({
-      orchestrator,
+      orchestrator: composeController({ execution: orchestrator, store, tasks, settings, dataDir: absoluteDataDir }),
       signal: abort.signal,
       intervalMs: settings.scheduler.pollIntervalMs,
       onEvent,

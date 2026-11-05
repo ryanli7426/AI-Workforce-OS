@@ -12,6 +12,8 @@ import {
 import { join, parse, resolve, sep } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { LocalOrchestrator } from '../application/local-orchestrator.ts'
+import { composeController } from '../application/controller.ts'
+import { acquireControllerLease } from '../application/controller-lease.ts'
 import { LocalTaskService } from '../application/tasks.ts'
 import { createSettings, defaultSettings, loadSettings, type LocalSettings } from '../config/settings.ts'
 import { ArtifactStore } from '../artifacts/snapshots.ts'
@@ -682,6 +684,7 @@ async function handleRunOnce(parsed: DataDirOnlyCommand, io: TaskCliIO): Promise
   const path = validateInitializedDataDir(absoluteDataDir)
   const settings = loadSettings(settingsPath(absoluteDataDir))
   if (settings.runtime.command === null) fail('Runtime command is not configured')
+  const lease = acquireControllerLease({ dataDir: absoluteDataDir })
   let store: LocalStore | undefined
   try {
     store = new LocalStore(path)
@@ -704,11 +707,13 @@ async function handleRunOnce(parsed: DataDirOnlyCommand, io: TaskCliIO): Promise
       maxConcurrency: settings.scheduler.maxConcurrency,
       runtimeEnvironment: pickRuntimeEnvironment(),
     })
-    const counters = await orchestrator.tick()
+    const controller = composeController({ execution: orchestrator, store, tasks, settings, dataDir: absoluteDataDir })
+    await controller.reconcile()
+    const counters = await controller.tick()
     writeJson(io, counters)
     return 0
   } finally {
-    store?.close()
+    try { lease.release() } finally { store?.close() }
   }
 }
 
