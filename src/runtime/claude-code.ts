@@ -1,4 +1,5 @@
 /** Pure Claude Code Runtime adapter: argv LaunchSpec + structured result parsing. No spawn, no model SDK. */
+import type { RuntimeAdapter, RuntimeTaskInput, RuntimeResultInput, RuntimeUsage, RuntimeResult, RuntimeCapabilities } from './ports.ts'
 import { redact } from '../security/redaction.ts'
 import { isAbsolute } from 'node:path'
 import { assertExecutionId, validateLaunchSpec, type LaunchSpec } from '../runner/protocol.ts'
@@ -19,47 +20,23 @@ export interface ClaudeCodeOptions {
   graceMs?: number
 }
 
-export interface TaskInput {
-  executionId: string
-  assignmentId: string
-  ticketId: string
-  generation: number
-  cwd: string
-  title: string
-  description: string
-  inputRevision: string
-  policyVersion: string
+// Preserve existing import names while sharing the vendor-neutral protocol.
+export type TaskInput = RuntimeTaskInput
+export type ClaudeParseInput = RuntimeResultInput
+export type ClaudeUsage = RuntimeUsage
+export type ClaudeParsedResult = RuntimeResult
+export interface ClaudeRuntimeCapabilities extends RuntimeCapabilities {
+  readonly activeInput: false
+  readonly continueSession: false
+  readonly reattachMonitor: false
+  readonly pause: false
+  readonly structuredResult: true
+  readonly filesystemIsolation: false
 }
-
-export interface ClaudeParseInput {
-  exitCode: number | null
-  signal?: string | null
-  stdout: string
-  stderr?: string
-  reason?: string
-}
-
-export interface ClaudeUsage {
-  inputTokens?: number
-  outputTokens?: number
-  cacheReadTokens?: number
-  cacheCreationTokens?: number
-}
-
-export interface ClaudeParsedResult {
-  terminal: 'success' | 'error'
-  summary: string
-  sessionId?: string
-  usage?: ClaudeUsage
-}
-
-export interface ClaudeRuntimeCapabilities {
-  activeInput: false
-  continueSession: false
-  reattachMonitor: false
-  pause: false
-  structuredResult: true
-}
+export const CLAUDE_CODE_CAPABILITIES: ClaudeRuntimeCapabilities = Object.freeze({
+  activeInput:false, continueSession:false, reattachMonitor:false, pause:false,
+  structuredResult:true, filesystemIsolation:false,
+})
 
 function scrub(value: string): string {
   return redact(value).replace(CREDENTIAL_PATTERN, '[REDACTED]')
@@ -182,15 +159,9 @@ function buildPrompt(input: TaskInput): string {
 }
 
 /** Declarative Claude Code argv/result adapter used by the Runner; does not own processes. */
-export class ClaudeCodeAdapter {
+export class ClaudeCodeAdapter implements RuntimeAdapter {
   readonly runtime = 'claude-code' as const
-  readonly capabilities: ClaudeRuntimeCapabilities = {
-    activeInput: false,
-    continueSession: false,
-    reattachMonitor: false,
-    pause: false,
-    structuredResult: true,
-  }
+  readonly capabilities = CLAUDE_CODE_CAPABILITIES
 
   private readonly command: string
   private readonly permissionMode: 'default' | 'plan'

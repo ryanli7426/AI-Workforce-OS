@@ -88,3 +88,9 @@
 R1-D已完成事务内SQLite通知、认证SSE与游标恢复、React查询失效及连接状态。完整pnpm check：62文件821后端、12文件106前端测试及4条Chromium流程，无跳过；类型/构建/独立smoke/依赖扫描通过。实际编译API跨10秒心跳、带流退出、离线CLI变更回放及浏览器重连/编辑草稿保留通过。证据见reviews/r1d。
 
 SSE只通知DB状态变化，stdout追加仍轮询，不改变执行/验证/人工审核边界。Core与Runtime本阶段未变；完整产品和Runtime范围加固仍待实施。
+
+## 2026-11-06：Runtime注册与能力目录
+
+统一Runtime协议、可信注册表、Orchestrator驱动选择和CLI/API/Web目录已集成；当前单Claude实例，不声称多Runtime/能力路由完成。真实独立Node fixture驱动验证了Runner/重启/产物链路与错误驱动不释放Assignment。完整门禁836后端、110前端、5浏览器流程通过，证据见reviews/r1e。
+
+范围设计审查确认当前Worktree/tools不足以提供OS边界；能力明确false。已记录Provider/版本兼容/自有哨兵负向probe方案，未安装沙箱依赖、升级用户CLI或调用真实模型。

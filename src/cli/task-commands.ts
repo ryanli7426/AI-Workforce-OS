@@ -11,6 +11,7 @@ import {
 } from 'node:fs'
 import { join, parse, resolve, sep } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { runtimeCatalog } from '../application/runtime-catalog.ts'
 import { LocalOrchestrator } from '../application/local-orchestrator.ts'
 import { composeController } from '../application/controller.ts'
 import { acquireControllerLease } from '../application/controller-lease.ts'
@@ -39,6 +40,7 @@ const COMMANDS = [
   'task-verify',
   'run-once',
   'executions',
+  'runtimes',
 ] as const
 
 type CommandName = (typeof COMMANDS)[number]
@@ -101,7 +103,7 @@ interface TaskVerifyCommand extends BaseParsed {
 }
 
 interface DataDirOnlyCommand extends BaseParsed {
-  command: 'run-once' | 'executions'
+  command: 'run-once' | 'executions' | 'runtimes'
 }
 
 type ParsedTaskCommand =
@@ -693,6 +695,7 @@ async function handleRunOnce(parsed: DataDirOnlyCommand, io: TaskCliIO): Promise
     // graceMs is forwarded for the parent-updated LocalOrchestrator runtime contract.
     const runtime = {
       id: settings.runtime.id,
+      driver: settings.runtime.driver,
       command: settings.runtime.command,
       timeoutMs: settings.runtime.timeoutMs,
       maxOutputBytes: settings.runtime.maxOutputBytes,
@@ -718,6 +721,11 @@ async function handleRunOnce(parsed: DataDirOnlyCommand, io: TaskCliIO): Promise
 }
 
 async function handleExecutions(parsed: DataDirOnlyCommand, io: TaskCliIO): Promise<number> {
+  if (parsed.command === 'runtimes') {
+    assertPrivateRealDataDir(parsed.dataDir)
+    writeJson(io,runtimeCatalog(loadSettings(settingsPath(parsed.dataDir))))
+    return 0
+  }
   const path = validateInitializedDataDir(parsed.dataDir)
   let db: DatabaseSync | undefined
   try {
@@ -760,6 +768,7 @@ export async function runTaskCommand(
         return await handleTaskVerify(parsed, io)
       case 'run-once':
         return await handleRunOnce(parsed, io)
+      case 'runtimes':
       case 'executions':
         return await handleExecutions(parsed, io)
     }

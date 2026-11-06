@@ -20,7 +20,9 @@ import { ExecutionRepository } from '../execution/repository.ts'
 import { IntentDispatcher, NotAppliedError } from '../orchestration/dispatcher.ts'
 import { IntentRepository, type Intent, type JsonValue } from '../orchestration/intents.ts'
 import { ProjectRepository, type Project } from '../projects/projects.ts'
-import { ClaudeCodeAdapter } from '../runtime/claude-code.ts'
+import type { RuntimeAdapter } from '../runtime/ports.ts'
+import { RuntimeRegistry } from '../runtime/registry.ts'
+import { builtinRuntimeRegistry, LEGACY_CLAUDE_RUNTIME_FINGERPRINT } from '../runtime/builtins.ts'
 import { RunnerClient } from '../runner/client.ts'
 import { redact } from '../security/redaction.ts'
 import { applicationRepositories } from '../storage/application-store.ts'
@@ -29,7 +31,6 @@ import { EmployeeRepository, type Employee } from '../workforce/employees.ts'
 import { GitWorktreeManager } from '../workspaces/git-worktrees.ts'
 import type { LocalTaskService } from './tasks.ts'
 
-const DRIVER = 'claude-code' as const
 const DEFAULT_MAX_CONCURRENCY = 1
 const DEFAULT_TIMEOUT_MS = 60 * 60_000
 const DEFAULT_MAX_OUTPUT_BYTES = 8 * 1024 * 1024
@@ -40,6 +41,7 @@ const ERROR_MESSAGE_LIMIT = 8_192
 
 export interface LocalRuntimeConfig {
   id: string
+  driver?: string
   command: string
   timeoutMs?: number
   maxOutputBytes?: number
@@ -50,6 +52,7 @@ export interface LocalOrchestratorOptions {
   store: LocalStore
   tasks: LocalTaskService
   runtime: LocalRuntimeConfig
+  registry?: RuntimeRegistry
   runnerRoot: string
   artifactRoot: string
   maxConcurrency?: number
@@ -234,6 +237,7 @@ function persistableError(error: unknown, fallback: string): string {
 export class LocalOrchestrator {
   private readonly store: LocalStore
   private readonly tasks: LocalTaskService
+  private readonly registry: RuntimeRegistry
   private readonly runtime: Required<LocalRuntimeConfig>
   private readonly maxConcurrency: number
   private readonly runnerRoot: string
@@ -269,11 +273,16 @@ export class LocalOrchestrator {
     if (!Number.isSafeInteger(maxOutputBytes) || maxOutputBytes < 1) throw new Error('Invalid runtime.maxOutputBytes')
     if (!Number.isSafeInteger(graceMs) || graceMs < 1) throw new Error('Invalid runtime.graceMs')
 
+    this.registry = options.registry ?? builtinRuntimeRegistry()
+    const driver = options.runtime.driver ?? 'claude-code'
+    this.registry.require(driver)
+
     applicationRepositories(options.store.db)
     this.store = options.store
     this.tasks = options.tasks
     this.runtime = {
       id: options.runtime.id,
+      driver,
       command: options.runtime.command,
       timeoutMs,
       maxOutputBytes,
@@ -397,7 +406,7 @@ export class LocalOrchestrator {
             const executionId = randomUUID()
             requireSafeId(executionId, 'executionId')
             const cwd = resolve(project.worktreeRoot, executionId)
-            this.tasks.engine.assignTask(ticket.id, employee.id, DRIVER, cwd)
+            this.tasks.engine.assignTask(ticket.id, employee.id, this.runtime.driver, cwd)
             return true
           }
         }
@@ -445,7 +454,8 @@ export class LocalOrchestrator {
     if (assignment.worktreePath !== spec.cwd || launchCwd !== spec.cwd) throw new Error('Authorization denied: cwd mismatch')
     if (realpathSync(spec.cwd) !== spec.cwd) throw new Error('Authorization denied: cwd is not canonical')
     if (assignment.agentId !== spec.agentId) throw new Error('Authorization denied: agent mismatch')
-    if (assignment.runtime !== DRIVER || spec.runtime !== DRIVER) {
+    if (assignment.runtime !== this.runtime.driver || spec.runtime !== this.runtime.driver
+      || spec.runtimeRevision !== this.registry.fingerprint(this.runtime.driver)) {
       throw new Error('Authorization denied: runtime driver mismatch')
     }
 
@@ -467,8 +477,8 @@ export class LocalOrchestrator {
     }
   }
 
-  private createAdapter(timeoutMs: number): ClaudeCodeAdapter {
-    return new ClaudeCodeAdapter({
+  private createAdapter(timeoutMs: number): RuntimeAdapter {
+    return this.registry.create(this.runtime.driver, {
       command: this.runtime.command,
       timeoutMs,
       maxOutputBytes: this.runtime.maxOutputBytes,
@@ -491,7 +501,7 @@ export class LocalOrchestrator {
     if (assignment.agentId !== payload.agentId || assignment.runtime !== payload.runtime) {
       throw new NotAppliedError('Launch identity metadata mismatch')
     }
-    if (assignment.runtime !== DRIVER) throw new NotAppliedError('Unsupported runtime driver')
+    if (assignment.runtime !== this.runtime.driver) throw new NotAppliedError('Unsupported runtime driver')
     if (assignment.state === 'ended') throw new NotAppliedError('Assignment already ended')
 
     // A replay may refer to an execution that already spawned. Its cancellation
@@ -574,7 +584,8 @@ export class LocalOrchestrator {
       assignmentId: assignment.id,
       ticketId: ticket.id,
       agentId: assignment.agentId!,
-      runtime: DRIVER,
+      runtime: this.runtime.driver,
+      runtimeRevision: this.registry.fingerprint(this.runtime.driver),
       generation: payload.generation,
       cwd: canonical,
       inputRevision: accepted.revision,
@@ -699,6 +710,14 @@ export class LocalOrchestrator {
 
     if (['REVIEW', 'FAILED', 'CANCELLED', 'DONE'].includes(ticket.lifecycle.status) && assignment.state === 'ended') {
       return
+    }
+
+    const historicalRevision = execution.runtimeRevision === undefined
+      ? (execution.runtime === 'claude-code' ? LEGACY_CLAUDE_RUNTIME_FINGERPRINT : undefined)
+      : execution.runtimeRevision
+    if (execution.runtime !== this.runtime.driver || assignment.runtime !== execution.runtime
+      || historicalRevision !== this.registry.fingerprint(this.runtime.driver)) {
+      throw new Error('Historical Runtime driver is unavailable; restore its configuration before reconciliation')
     }
 
     // A fast cancellation can arrive after spawn but before Core sees RUNNING.

@@ -51,6 +51,7 @@ describe('ClaudeCodeAdapter launch argv contract', () => {
       reattachMonitor: false,
       pause: false,
       structuredResult: true,
+      filesystemIsolation: false,
     })
   })
 

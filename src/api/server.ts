@@ -1,5 +1,6 @@
 /** Authenticated local HTTP application transport. Factory never listens, migrates, or starts Runtime. */
 import { isAbsolute } from 'node:path'
+import { runtimeCatalog } from '../application/runtime-catalog.ts'
 import { registerManagementRoutes } from './management-routes.ts'
 import { registerVerificationRoutes } from './verification-routes.ts'
 import { registerChangeStream } from './change-stream.ts'
@@ -593,6 +594,9 @@ export function createApiServer(options: CreateApiServerOptions): FastifyInstanc
   app.get('/api/v1/employees', {
     schema: { querystring: emptyQuery },
   }, async () => queries.employees())
+  app.get('/api/v1/runtimes', {
+    schema: { querystring: emptyQuery },
+  }, async () => runtimeCatalog(settings))
   app.get('/api/v1/projects', {
     schema: { querystring: emptyQuery },
   }, async () => queries.projects())

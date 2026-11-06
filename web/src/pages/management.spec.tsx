@@ -78,6 +78,7 @@ function mockApi(partial: Partial<ApiClient> = {}): ApiClient {
   return {
     manage: vi.fn(),
     managementHistory: vi.fn(async () => ({ items: [] })),
+    runtimes: vi.fn().mockRejectedValue(new Error('Unused Runtime query')),
     executions: vi.fn().mockResolvedValue({items:[]}),
     me: vi.fn(),
     overview: vi.fn(),

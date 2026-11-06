@@ -21,7 +21,7 @@ import {
 } from '../src/cli/task-commands.ts'
 import { LocalTaskService } from '../src/application/tasks.ts'
 import type { Rule } from '../src/assessor/rules.ts'
-import { loadSettings } from '../src/config/settings.ts'
+import { loadSettings, createSettings, defaultSettings } from '../src/config/settings.ts'
 import { ProjectRepository } from '../src/projects/projects.ts'
 import { initializeApplicationSchema } from '../src/storage/application-store.ts'
 import { LocalStore } from '../src/storage/store.ts'
@@ -609,4 +609,36 @@ describe('run-once fixture', () => {
     })
     expect((once.json as { assigned: number }).assigned).toBeGreaterThanOrEqual(1)
   })
+})
+
+
+it('lists Runtime facts read-only, without initializing missing directories or executing configured commands',async()=>{
+  const missing=join(root,'missing-runtime-data')
+  expect((await run('runtimes','--data-dir',missing)).code).toBe(1)
+  expect(existsSync(missing)).toBe(false)
+  const dataDir=initDataDir()
+  const command=join(root,'must-not-run')
+  writeFileSync(command,'#!/bin/sh\ntouch '+join(root,'unexpected-process')+'\n',{mode:0o700})
+  expect((await configure(dataDir,command)).code).toBe(0)
+  const before=readFileSync(join(dataDir,'workforce.sqlite'))
+  const result=await run('runtimes','--data-dir',dataDir)
+  expect(result.code).toBe(0)
+  expect(result.json).toMatchObject({instances:[{id:'claude-local',configured:true,health:'not_checked'}],drivers:[{id:'claude-code',capabilities:{filesystemIsolation:false}}]})
+  expect(result.stdout).not.toContain(command)
+  expect(existsSync(join(root,'unexpected-process'))).toBe(false)
+  expect(readFileSync(join(dataDir,'workforce.sqlite'))).toEqual(before)
+  expect((await run('runtimes','--data-dir',dataDir,'--probe')).code).toBe(1)
+})
+
+
+it('can diagnose Runtime configuration when the execution database is missing or corrupt',async()=>{
+  const dir=join(root,'settings-only');mkdirSync(dir,{mode:0o700})
+  createSettings(join(dir,'settings.json'),defaultSettings({ownerId:'owner'}))
+  const absent=await run('runtimes','--data-dir',dir)
+  expect(absent.code).toBe(0)
+  expect(absent.json).toMatchObject({instances:[{configured:false,health:'not_checked'}]})
+  expect(existsSync(join(dir,'workforce.sqlite'))).toBe(false)
+  writeFileSync(join(dir,'workforce.sqlite'),'owned corrupt database fixture',{mode:0o600})
+  expect((await run('runtimes','--data-dir',dir)).code).toBe(0)
+  expect(readFileSync(join(dir,'workforce.sqlite'),'utf8')).toBe('owned corrupt database fixture')
 })

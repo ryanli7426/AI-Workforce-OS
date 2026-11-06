@@ -41,7 +41,7 @@
 | 数据库 | SQLite WAL + 现有 Repository | 本地与单控制平面首版 |
 | SQL 与迁移 | 参数化 SQL + 编号迁移 | 暂时沿用；不为跨数据库预期重写 ORM |
 | 调度 | SQLite Effects / Outbox / Inbox | 首版；幂等消费、恢复和重试由应用层负责 |
-| 执行 | 独立 Node Runner + Runtime Adapter + Git Worktree | R0 必需；Runner 脱离 HTTP 进程生命周期 |
+| 执行 | 独立Node Runner + 可信RuntimeRegistry/Adapter + Git Worktree | 已实施单Claude实例与能力目录、持久协议指纹；Runner独立于HTTP，强OS范围隔离仍待实施 |
 | 日志 | Pino JSON 日志 + 独立 stdout/stderr 文件 | 独立应用阶段；限制大小、权限与敏感信息 |
 | Web 基础 | React + TypeScript + Vite | R1；独立 SPA，生产静态资源可由同一本地服务提供 |
 | 路由 | TanStack Router | R1；资源详情、嵌套路由和筛选参数 |

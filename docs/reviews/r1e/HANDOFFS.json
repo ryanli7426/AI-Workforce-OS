@@ -1,0 +1,21 @@
+{
+  "delegatedModelExplicitlyRequested": "gpt-5.6-sol",
+  "reports": {
+    "workforce-runtime-scope-design-r1e.md": {
+      "sha256": "070e9754e20071a294078bfa9940aad0f8d6781981dc13087b2f980bc6b0cbd1",
+      "bytes": 10178
+    },
+    "workforce-runtime-registry-review-r1e.md": {
+      "sha256": "7ef49c59f73ee64a47d06281a6be978c01d74056d117cf1a074b8edeb7e6430b",
+      "bytes": 1672
+    },
+    "workforce-runtime-registry-correction-review-r1e.md": {
+      "sha256": "2966d3d12d40a1d1cb93ccd6cfc2d1ae2c552264d4a1b4de2cac11655b23d573",
+      "bytes": 1369
+    }
+  },
+  "implementation": "parent",
+  "cursorAttemptsThisMilestone": 0,
+  "modelOrBusinessTaskExecutedInAcceptance": false,
+  "scopeDesign": "not containment acceptance"
+}

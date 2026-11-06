@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ApiError, createApiClient, type ApiClient, type Principal } from './api.ts'
+import { RuntimesPage } from './pages/runtimes.tsx'
 import { ExecutionsPage } from './pages/executions.tsx'
 import { TasksPage, TaskPage } from './pages/tasks.tsx'
 import { EmployeesManager, ProjectsManager } from './pages/management.tsx'
@@ -8,7 +9,7 @@ import { OverviewPage, ExecutionPage } from './pages/overview.tsx'
 import { RealtimeStatus } from './realtime.tsx'
 
 interface Connection { api: ApiClient; principal: Principal; cache: QueryClient }
-const NAVIGATION = [ ['/', '总览', '◈'], ['/tasks', '任务中心', '▤'], ['/approvals', '审批与验收', '◇'], ['/employees', 'AI 员工', '♧'], ['/projects', '项目空间', '▧'], ['/executions', '执行中心', '▷'] ] as const
+const NAVIGATION = [ ['/', '总览', '◈'], ['/tasks', '任务中心', '▤'], ['/approvals', '审批与验收', '◇'], ['/employees', 'AI 员工', '♧'], ['/projects', '项目空间', '▧'], ['/executions', '执行中心', '▷'], ['/runtimes', 'Runtime 注册', '⌘'] ] as const
 const SAFE_ID = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/
 function currentRoute() { return window.location.hash.slice(1) || '/' }
 function Login({ onConnect }: { onConnect(api: ApiClient, principal: Principal): void }) {
@@ -60,6 +61,7 @@ export function App() {
   else if (path === '/approvals') page = <TasksPage api={api} approvals/>
   else if (path === '/employees') page = <EmployeesManager api={api}/>
   else if (path === '/projects') page = <ProjectsManager api={api}/>
+  else if (path === '/runtimes') page = <RuntimesPage api={api}/>
   else if (path === '/executions') page = <ExecutionsPage api={api}/>
   else if (parts.length === 3 && parts[1] === 'tasks' && SAFE_ID.test(parts[2] ?? '')) page = <TaskPage api={api} ticketId={parts[2]!}/>
   else if (parts.length === 3 && parts[1] === 'executions' && SAFE_ID.test(parts[2] ?? '')) page = <ExecutionPage api={api} executionId={parts[2]!}/>

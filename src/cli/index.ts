@@ -55,6 +55,7 @@ Commands:
   stop                   Request graceful controller stop (Runners remain independent)
   controller-status      Query controller ownership and process liveness
   logs ID                Read scoped execution logs (--tail-bytes N, --execution-id ID)
+  runtimes               List configured Runtime instances and truthful capabilities (no probe)
   api-init               Create private local API credentials (prints path only)
   api-serve              Run authenticated loopback HTTP API (--port N, --allow-origin URL, --web-root DIR)
 

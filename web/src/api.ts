@@ -2,6 +2,8 @@ import type { ManagementCommand, ManagementResult, ManagementAudit } from '../..
 import { createVerificationApi, type VerificationApi } from './verification-api.ts'
 import { createChangeStreamClient } from './change-stream.ts'
 import type { ChangeStreamClient } from './realtime-model.ts'
+import type { RuntimeCatalog } from '../../src/application/runtime-catalog.ts'
+export type { RuntimeCatalog } from '../../src/application/runtime-catalog.ts'
 export type { ManagementCommand, ManagementResult, ManagementAudit } from '../../src/application/management-commands.ts'
 import type { ProductOverview, ProductTaskListOptions, ProductTaskListResult, ProductTaskDetail, ProductExecutionListOptions, ProductExecutionListResult } from '../../src/application/product-queries.ts'
 import type { LocalTaskCommand, TaskCommandResult } from '../../src/application/task-commands.ts'
@@ -12,6 +14,7 @@ import type { ExecutionLogsResult } from '../../src/observability/execution-logs
 export type { ProductOverview, ProductTaskListOptions, ProductTaskListResult, ProductTaskDetail, ProductExecutionListOptions, ProductExecutionListResult, LocalTaskCommand, TaskCommandResult, Employee, Project, ExecutionRecord, ExecutionLogsResult }
 export interface Principal { ownerId: string; workspaceId: string; role: 'owner' }
 export interface ApiClient {
+  runtimes(signal?: AbortSignal): Promise<RuntimeCatalog>
   verification?: VerificationApi
   changes?: ChangeStreamClient
   executions(options?: ProductExecutionListOptions, signal?: AbortSignal): Promise<ProductExecutionListResult>
@@ -130,6 +133,29 @@ function requireSafeKey(value: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function assertRuntimeCatalog(value: unknown): RuntimeCatalog {
+  const exact=(row:Record<string,unknown>,keys:string[])=>Object.keys(row).length===keys.length&&keys.every(key=>Object.hasOwn(row,key))
+  const id=(item:unknown):item is string=>typeof item==='string'&&SAFE_ID.test(item)
+  const caps=['activeInput','continueSession','reattachMonitor','pause','structuredResult','filesystemIsolation']
+  if(!isRecord(value)||!exact(value,['drivers','instances'])||!Array.isArray(value.drivers)||!Array.isArray(value.instances)
+    ||value.drivers.length>64||value.instances.length>64)failInvalidResponse()
+  const drivers=new Set<string>(),instances=new Set<string>()
+  for(const driver of value.drivers){
+    if(!isRecord(driver)||!exact(driver,['id','displayName','protocolVersion','capabilities'])||!id(driver.id)||drivers.has(driver.id)
+      ||!Number.isSafeInteger(driver.protocolVersion)||(driver.protocolVersion as number)<1||(driver.protocolVersion as number)>1000000
+      ||typeof driver.displayName!=='string'||!driver.displayName.trim()||driver.displayName.length>128
+      ||/[\x00-\x1f\x7f]/.test(driver.displayName)||!isRecord(driver.capabilities)||!exact(driver.capabilities,caps)
+      ||caps.some(key=>typeof (driver.capabilities as Record<string,unknown>)[key]!=='boolean'))failInvalidResponse()
+    drivers.add(driver.id)
+  }
+  for(const instance of value.instances){
+    if(!isRecord(instance)||!exact(instance,['id','driver','configured','health'])||!id(instance.id)||instances.has(instance.id)
+      ||!id(instance.driver)||!drivers.has(instance.driver)||typeof instance.configured!=='boolean'||instance.health!=='not_checked')failInvalidResponse()
+    instances.add(instance.id)
+  }
+  return value as unknown as RuntimeCatalog
 }
 
 function failInvalidResponse(): never {
@@ -653,6 +679,9 @@ export function createApiClient(token: string): ApiClient {
   }
 
   const client: ApiClient = {
+    async runtimes(signal) {
+      return request(`${API_PREFIX}/runtimes`, {method:'GET',signal,okStatuses:new Set([200]),parse:assertRuntimeCatalog})
+    },
     changes: createChangeStreamClient({open: ({cursor,signal}) => {
       const headers = new Headers()
       headers.set('Authorization',authorization)

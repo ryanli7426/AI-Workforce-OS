@@ -13,6 +13,8 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { RuntimeRegistry } from '../src/runtime/registry.ts'
+import type { RuntimeDriver } from '../src/runtime/ports.ts'
 import { LocalOrchestrator } from '../src/application/local-orchestrator.ts'
 import { LocalTaskService } from '../src/application/tasks.ts'
 import type { Rule } from '../src/assessor/rules.ts'
@@ -73,6 +75,7 @@ function initGitRepo(dir: string, home: string, body = 'hello typoo world\n'): s
 
 interface RuntimeOverrides {
   id?: string
+  driver?: string
   command?: string
   timeoutMs?: number
   maxOutputBytes?: number
@@ -88,7 +91,7 @@ interface Harness {
   launcher: string
   executions: () => ExecutionRepository
   intents: () => IntentRepository
-  createOrchestrator: (overrides?: { maxConcurrency?: number; runtime?: RuntimeOverrides }) => LocalOrchestrator
+  createOrchestrator: (overrides?: { maxConcurrency?: number; runtime?: RuntimeOverrides; registry?: RuntimeRegistry }) => LocalOrchestrator
   seedProject: (overrides?: Partial<ProjectCreateInput>) => ReturnType<ProjectRepository['create']>
   seedEmployee: (overrides?: Partial<EmployeeCreateInput> & { enabled?: boolean }) => void
   reopen: () => void
@@ -215,16 +218,18 @@ function harness(): Harness {
   writeFileSync(launcher, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(FIXTURE)} "$@"\n`, { mode: 0o755 })
   chmodSync(launcher, 0o755)
 
-  const create = (overrides: { maxConcurrency?: number; runtime?: RuntimeOverrides } = {}) => new LocalOrchestrator({
+  const create = (overrides: { maxConcurrency?: number; runtime?: RuntimeOverrides; registry?: RuntimeRegistry } = {}) => new LocalOrchestrator({
     store,
     tasks,
     runtime: {
+      driver: overrides.runtime?.driver,
       id: overrides.runtime?.id ?? 'runtime-local-1',
       command: overrides.runtime?.command ?? launcher,
       timeoutMs: overrides.runtime?.timeoutMs ?? 5_000,
       maxOutputBytes: overrides.runtime?.maxOutputBytes ?? 256 * 1024,
       ...(overrides.runtime?.graceMs === undefined ? {} : { graceMs: overrides.runtime.graceMs }),
     },
+    registry: overrides.registry,
     runnerRoot: join(root, 'runners'),
     artifactRoot: join(root, 'artifacts'),
     maxConcurrency: overrides.maxConcurrency ?? 1,
@@ -273,6 +278,77 @@ async function tickUntil(
 }
 
 describe('LocalOrchestrator closed loop', () => {
+  it('runs a distinct registered driver through Runner, worktree, restart and artifact without Claude output',async()=>{
+    const h=harness();const project=h.seedProject();h.seedEmployee()
+    const driver:RuntimeDriver={
+      id:'fixture-driver',displayName:'Owned Node fixture',protocolVersion:1,
+      capabilities:{activeInput:false,continueSession:false,reattachMonitor:false,pause:false,structuredResult:true,filesystemIsolation:false},
+      create:config=>({runtime:'fixture-driver',capabilities:driver.capabilities,
+        createLaunch:input=>({...config,executionId:input.executionId,assignmentId:input.assignmentId,ticketId:input.ticketId,generation:input.generation,cwd:input.cwd,
+          args:['-e',"setTimeout(()=>{require('node:fs').writeFileSync('README.md','independent driver result\\n');process.stdout.write('CUSTOM_RESULT_OK')},200)"]}),
+        parseResult:input=>({terminal:input.exitCode===0&&input.stdout==='CUSTOM_RESULT_OK'?'success':'error',summary:'Independent fixture driver completed'})})}
+    const registry=new RuntimeRegistry([driver])
+    const ticket=h.tasks.create({issueId:'custom-driver-issue',projectId:'proj-1',title:'Custom protocol',description:'Owned process integration',taskType:'docs'})
+    h.tasks.approve(ticket.id,'Fixture approval')
+    const options={registry,runtime:{driver:'fixture-driver',command:process.execPath}}
+    await h.createOrchestrator(options).tick()
+    expect(h.executions().list()[0]!.runtime).toBe('fixture-driver')
+    const runner=new RunnerClient({root:join(h.root,'runners'),workerPath:WORKER_PATH})
+    const executionId=h.executions().list()[0]!.executionId
+    const deadline=Date.now()+5000
+    while(Date.now()<deadline&&!TERMINAL_EXECUTION_STATES.includes((await runner.status(executionId)).state))await delay(30)
+    expect(TERMINAL_EXECUTION_STATES.includes((await runner.status(executionId)).state)).toBe(true)
+    h.reopen()
+    await expect(h.createOrchestrator().reconcile()).rejects.toThrow('Historical Runtime driver is unavailable')
+    expect(h.tasks.get(ticket.id)!.lifecycle!.status).not.toBe('FAILED')
+    expect(latestAssignment(h.tasks.get(ticket.id)!)!.state).not.toBe('ended')
+    let wrongParserCalls=0
+    const incompatible:RuntimeDriver={...driver,protocolVersion:2,create:config=>({...driver.create(config),parseResult:()=>{wrongParserCalls++;return {terminal:'success',summary:'Wrong v2 interpretation'}}})}
+    await expect(h.createOrchestrator({...options,registry:new RuntimeRegistry([incompatible])}).reconcile()).rejects.toThrow('Historical Runtime driver is unavailable')
+    expect(wrongParserCalls).toBe(0)
+    expect(latestAssignment(h.tasks.get(ticket.id)!)!.state).not.toBe('ended')
+    const changedCapabilities={...driver,capabilities:{...driver.capabilities,filesystemIsolation:true}}
+    await expect(h.createOrchestrator({...options,registry:new RuntimeRegistry([changedCapabilities])}).reconcile()).rejects.toThrow('Historical Runtime driver is unavailable')
+    await tickUntil(h.createOrchestrator(options),h.tasks,ticket.id,'REVIEW')
+    expect(h.executions().list()).toHaveLength(1)
+    const result=h.tasks.get(ticket.id)!.lifecycle!.result!
+    expect(result.summary).toBe('Independent fixture driver completed')
+    expect(result.verification).toBe('unknown')
+    const manifest=await new ArtifactStore({root:join(h.root,'artifacts')}).verify('artifact-'+result.executionId)
+    expect(manifest.revision).toBe(result.artifactRevision)
+    expect(readFileSync(join(project.repositoryPath,'README.md'),'utf8')).toBe('hello typoo world\n')
+  })
+
+  it('recovers pre-registry Claude executions only through the fixed legacy protocol identity',async()=>{
+    const h=harness();h.seedProject();h.seedEmployee()
+    const ticket=h.tasks.create({issueId:'legacy-protocol',projectId:'proj-1',title:'Legacy',description:'FIXTURE_MODE=success',taskType:'docs'})
+    h.tasks.approve(ticket.id,'Fixture approval')
+    await h.createOrchestrator().tick()
+    const runner=new RunnerClient({root:join(h.root,'runners'),workerPath:WORKER_PATH})
+    const executionId=h.executions().list()[0]!.executionId,deadline=Date.now()+5000
+    while(Date.now()<deadline&&!TERMINAL_EXECUTION_STATES.includes((await runner.status(executionId)).state))await delay(30)
+    expect(TERMINAL_EXECUTION_STATES.includes((await runner.status(executionId)).state)).toBe(true)
+    h.store.db.exec("UPDATE execution SET spec_json=json_set(spec_json,'$.runtimeRevision',NULL),state_json=json_set(state_json,'$.runtimeRevision',NULL)")
+    h.reopen()
+    await expect(h.createOrchestrator().reconcile()).rejects.toThrow('Historical Runtime driver is unavailable')
+    expect(latestAssignment(h.tasks.get(ticket.id)!)!.state).not.toBe('ended')
+    h.store.db.exec("UPDATE execution SET spec_json=json_remove(spec_json,'$.runtimeRevision'),state_json=json_remove(state_json,'$.runtimeRevision')")
+    h.reopen()
+    await tickUntil(h.createOrchestrator(),h.tasks,ticket.id,'REVIEW')
+    expect(h.executions().list()).toHaveLength(1)
+    expect(h.executions().list()[0]!.runtimeRevision).toBeUndefined()
+    expect(h.tasks.get(ticket.id)!.lifecycle!.result!.terminal).toBe('success')
+  })
+
+  it('refuses unknown drivers before assigning or launching a queued Task',()=>{
+    const h=harness();h.seedProject();h.seedEmployee()
+    const ticket=h.tasks.create({issueId:'unknown-driver',projectId:'proj-1',title:'Unknown',description:'No launch',taskType:'docs'})
+    h.tasks.approve(ticket.id,'Fixture approval')
+    expect(()=>h.createOrchestrator({runtime:{driver:'not-installed'}})).toThrow('Unsupported Runtime driver')
+    expect(h.tasks.get(ticket.id)!.lifecycle!.status).toBe('QUEUED')
+    expect(h.executions().list()).toHaveLength(0)
+  })
+
   it('create → approval → queue → tick → RUNNING → file change → REVIEW, then explicit verify/review → DONE', async () => {
     const h = harness()
     h.seedProject()

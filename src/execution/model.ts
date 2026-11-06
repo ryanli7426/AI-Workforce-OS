@@ -8,6 +8,8 @@ export interface ExecutionSpec {
   ticketId: string
   agentId: string
   runtime: string
+  /** Persisted interpretation identity; absent only on legacy executions. */
+  runtimeRevision?: string
   generation: number
   cwd: string
   inputRevision: string

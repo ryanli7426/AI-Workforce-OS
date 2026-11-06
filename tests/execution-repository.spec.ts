@@ -221,3 +221,16 @@ describe('ExecutionRepository', () => {
     expect(() => repository.events('execution-1', -1)).toThrow(/cursor/)
   })
 })
+
+
+it('persists Runtime interpretation identity and refuses conflicting reservation replay',()=>{
+  const db=open();initializeExecutionSchema(db)
+  const repo=new ExecutionRepository(db),revision='a'.repeat(64)
+  repo.reserve(spec({runtimeRevision:revision}));repo.apply(event(1,'RUNNING',{processId:202}))
+  close(db)
+  const recovered=new ExecutionRepository(open())
+  expect(recovered.get('execution-1')!.runtimeRevision).toBe(revision)
+  expect(()=>recovered.reserve(spec({runtimeRevision:'b'.repeat(64)}))).toThrow('different spec')
+  expect(()=>recovered.reserve(spec())).toThrow('different spec')
+  expect(()=>recovered.reserve(spec({executionId:'invalid-revision',runtimeRevision:'invalid'}))).toThrow('Invalid Runtime revision')
+})

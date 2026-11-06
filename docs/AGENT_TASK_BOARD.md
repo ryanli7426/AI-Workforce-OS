@@ -119,3 +119,9 @@ Cursor Auto四路实现(storage/http/browser/react)在实施前均因Authenticat
 实际交付：Codex明确gpt-5.6-sol四路(storage/browser/design-review/真实TCP验收)，Claude HTTP，pi React；父Agent完成schema/Controller/API/App接线、心跳/关闭/通知依赖修正、编译CLI和Chromium验收。Claude后续进程测试遭429限额、pi后续审查遭无效SSE响应，父Agent接管，没有静默重启或替换模型。
 
 最终pnpm check：821后端、106前端、4条真实浏览器流程。报告哈希、审查处置和截图见reviews/r1d。完成的是本阶段通知能力，不是完整产品或真实IM交付。
+
+## 第十批：Runtime注册（R1-E，2026-11-06）
+
+父Agent实施Runtime协议/注册表、应用/CLI/API/Web接线、进程/恢复/浏览器测试。两个本地Codex任务明确gpt-5.6-sol：文件系统范围只读设计审查、注册表最终只读代码审查。Cursor实际认证此前仍失败，本批未重复消耗失败请求；累计完成保持38路。无真实模型任务、真实IM或历史生产Task变更。
+
+完整门禁836后端/110前端/5条Chromium流程；范围加固仅完成设计，不计隔离实现验收。报告与处置见reviews/r1e。

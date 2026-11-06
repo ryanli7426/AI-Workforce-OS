@@ -15,7 +15,7 @@ const SAFE_ID = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/
 const STATES = new Set<ExecutionState>(EXECUTION_STATES)
 const TERMINAL_STATES = new Set<ExecutionState>(TERMINAL_EXECUTION_STATES)
 const SPEC_FIELDS = [
-  'executionId', 'assignmentId', 'ticketId', 'agentId', 'runtime', 'generation', 'cwd', 'inputRevision', 'policyVersion',
+  'executionId', 'assignmentId', 'ticketId', 'agentId', 'runtime', 'runtimeRevision', 'generation', 'cwd', 'inputRevision', 'policyVersion',
 ] as const
 const EVENT_FIELDS = [
   'executionId', 'generation', 'sequence', 'at', 'state', 'runnerId', 'runnerPid', 'processId', 'sessionId',
@@ -60,6 +60,7 @@ function validateSpec(value: unknown): asserts value is ExecutionSpec {
   requireOnlyFields(spec, SPEC_FIELDS, 'execution spec')
   for (const field of ['executionId', 'assignmentId', 'ticketId', 'agentId'] as const) requireSafeId(spec[field], field)
   for (const field of ['runtime', 'inputRevision', 'policyVersion'] as const) requireText(spec[field], field)
+  if (spec.runtimeRevision !== undefined && (typeof spec.runtimeRevision !== 'string' || !/^[a-f0-9]{64}$/.test(spec.runtimeRevision))) throw new Error('Invalid Runtime revision')
   if (!Number.isSafeInteger(spec.generation) || Number(spec.generation) < 1) throw new Error('Invalid generation')
   requireText(spec.cwd, 'cwd')
   if (!isAbsolute(spec.cwd as string)) throw new Error('Execution cwd must be absolute')
@@ -72,6 +73,7 @@ function canonicalSpec(spec: ExecutionSpec): ExecutionSpec {
     ticketId: spec.ticketId,
     agentId: spec.agentId,
     runtime: spec.runtime,
+    ...(spec.runtimeRevision === undefined ? {} : {runtimeRevision:spec.runtimeRevision}),
     generation: spec.generation,
     cwd: spec.cwd,
     inputRevision: spec.inputRevision,

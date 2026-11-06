@@ -876,3 +876,21 @@ describe('queries and mutations', () => {
     expect(foreignLogs.statusCode).toBe(404)
   })
 })
+
+
+describe('Runtime catalog API',()=>{
+  it('requires authentication and only exposes static capability/configuration facts',async()=>{
+    const {app,settings,store}=await fixture()
+    const before=store.db.prepare('SELECT count(*) AS count FROM execution').get()
+    const denied=await app.inject({method:'GET',url:'/api/v1/runtimes',headers:{host:HOST,origin:ORIGIN}})
+    expect(denied.statusCode).toBe(401)
+    const response=await inject(app,{method:'GET',url:'/api/v1/runtimes'})
+    expect(response.statusCode).toBe(200)
+    const result=response.json()
+    expect(result.instances).toEqual([{id:'claude-local',driver:'claude-code',configured:settings.runtime.command!==null,health:'not_checked'}])
+    expect(result.drivers[0].capabilities).toMatchObject({filesystemIsolation:false,activeInput:false})
+    expect(response.body).not.toContain('command')
+    expect(store.db.prepare('SELECT count(*) AS count FROM execution').get()).toEqual(before)
+    expect((await inject(app,{method:'GET',url:'/api/v1/runtimes?probe=true'})).statusCode).toBe(400)
+  })
+})

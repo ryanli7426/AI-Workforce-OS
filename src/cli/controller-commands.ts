@@ -624,6 +624,7 @@ async function handleStart(parsed: StartCommand, io: ControllerCliIO): Promise<n
       tasks,
       runtime: {
         id: settings.runtime.id,
+      driver: settings.runtime.driver,
         command: settings.runtime.command,
         timeoutMs: settings.runtime.timeoutMs,
         maxOutputBytes: settings.runtime.maxOutputBytes,

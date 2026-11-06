@@ -203,3 +203,15 @@ node dist/cli/index.js verification-cancel VERIFICATION_ID --data-dir .workforce
 显式init安装change-feed-schema1及事务触发器；已有目录需先init再启动新版API，查询/serve不迁移。GET /api/v1/events复用Bearer、Host/Origin校验，可传单一Last-Event-ID请求头，不接受查询参数或URL凭证。change/reset/ready为失效通知协议，HTTP查询仍是事实来源；ready仅在初始回放完成后发出。客户端应正确处理reset后重新查询，不能依赖无限历史。
 
 Controller对账/tick后最多每60秒保留最近50,000条通知；永久Task审计不变。只有API时通知继续积累。通知范围按当前Owner/Workspace，元信息不含任务正文、日志、命令或凭证。心跳10秒、慢消费者断开、连接数上限8；浏览器回退原轮询。完整契约见tasks/R1_REALTIME_CONTRACT.md，真实TCP/编译CLI/Chromium证据见reviews/r1d。
+
+## Runtime 注册与能力目录（R1-E）
+
+```sh
+node dist/cli/index.js runtimes --data-dir .workforce
+```
+
+只读列出正式注册的驱动和已配置实例。只需已有私有settings，执行数据库缺失或损坏时仍能诊断。不会生成缺失配置。不执行CLI、不探测登录/版本、不创建或迁移数据。实例显示configured与health: not_checked；不公开command、环境或凭证。认证API为GET /api/v1/runtimes（无查询参数），Web入口为Runtime注册。
+
+当前正式settings仍只有claude-local/claude-code；未提供多实例或第二产品Runtime。适配器由可信应用注册，配置不能动态加载代码。未知驱动在Assignment前拒绝；新Execution持久化驱动名称/协议/能力指纹；未收集历史Execution的驱动或指纹不匹配时保留Assignment并要求恢复原配置，不尝试用新驱动解释旧输出。已结束的历史Assignment不因此阻断查询。
+
+Runner的恢复观察与Agent会话恢复分别处理。Claude当前结构化结果为支持，执行中投递/会话恢复/Agent监控重连/暂停和强文件系统隔离为不支持。范围加固尚待实际OS边界与负向probe验收；详见tasks/RUNTIME_CONTAINMENT_PLAN.md和reviews/r1e。
