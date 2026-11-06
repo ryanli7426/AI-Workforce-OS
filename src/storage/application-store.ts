@@ -9,11 +9,12 @@ import { ApprovalRepository, initializeApprovalSchema } from '../governance/appr
 import { MANAGEMENT_SCHEMA_KEY, initializeManagementSchema } from './management-commands.ts'
 import { VERIFICATION_SCHEMA_KEY, initializeVerificationSchema } from './verification-jobs.ts'
 import { COMMAND_SCHEMA_KEY, initializeCommandSchema } from './command-receipts.ts'
+import { CHANGE_FEED_SCHEMA_KEY, initializeChangeFeedSchema } from './change-feed.ts'
 
 const MODULE_KEYS = ['execution-schema', 'intent-schema', 'employee-schema', 'project-schema', 'approval-schema'] as const
 export function initializeApplicationSchema(store: LocalStore): void {
   store.atomic(() => {
-    for (const key of [...MODULE_KEYS, COMMAND_SCHEMA_KEY, MANAGEMENT_SCHEMA_KEY, VERIFICATION_SCHEMA_KEY]) {
+    for (const key of [...MODULE_KEYS, COMMAND_SCHEMA_KEY, MANAGEMENT_SCHEMA_KEY, VERIFICATION_SCHEMA_KEY, CHANGE_FEED_SCHEMA_KEY]) {
       const version = store.get<unknown>(key)
       if (version !== undefined && version !== 1) throw new Error(`Unsupported module schema: ${key}`)
     }
@@ -25,6 +26,7 @@ export function initializeApplicationSchema(store: LocalStore): void {
     initializeCommandSchema(store.db)
     initializeManagementSchema(store.db)
     initializeVerificationSchema(store.db)
+    initializeChangeFeedSchema(store.db)
   })
 }
 /** No schema mutations. Caller must explicitly initialize before constructing. */

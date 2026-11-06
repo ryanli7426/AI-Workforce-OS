@@ -82,3 +82,9 @@
 ## R1-C增量
 
 可信计划异步验证已完成组合：VerificationJob独立于Assignment/Execution，工作进程独立于API和Controller，重启仅观察原任务；双重终止证据与签名报告绑定准确产物，Core应用与Job审计原子提交。CLI/Web入队、状态、取消与明确人工验收均有真实进程/浏览器测试。质量门禁详见reviews/r1c/CHECK.json。完整产品范围仍以DELIVERY_TRACKER为准；不将本次验证能力当作19模块完成。
+
+## 2026-11-06：持久实时通知集成
+
+R1-D已完成事务内SQLite通知、认证SSE与游标恢复、React查询失效及连接状态。完整pnpm check：62文件821后端、12文件106前端测试及4条Chromium流程，无跳过；类型/构建/独立smoke/依赖扫描通过。实际编译API跨10秒心跳、带流退出、离线CLI变更回放及浏览器重连/编辑草稿保留通过。证据见reviews/r1d。
+
+SSE只通知DB状态变化，stdout追加仍轮询，不改变执行/验证/人工审核边界。Core与Runtime本阶段未变；完整产品和Runtime范围加固仍待实施。

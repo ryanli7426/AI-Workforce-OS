@@ -9,13 +9,22 @@ beforeEach(()=>{window.location.hash='';localStorage.clear();sessionStorage.clea
 function submit(value=token) { fireEvent.change(screen.getByLabelText('本地访问凭证'),{target:{value}});fireEvent.click(screen.getByRole('button',{name:'连接工作空间'})) }
 describe('Web local Owner connection boundary',()=>{
  it('keeps credentials out of storage/URL and drops session on disconnect',async()=>{
-  const fetcher=vi.fn().mockResolvedValue(new Response(JSON.stringify({ownerId:'local-owner',workspaceId:'local',role:'owner'}),{status:200,headers:{'Content-Type':'application/json'}}));vi.stubGlobal('fetch',fetcher)
+  let streamSignal:AbortSignal|undefined
+  const fetcher=vi.fn(async(path:string,init?:RequestInit)=>{
+   if(path==='/api/v1/events'){
+    streamSignal=init?.signal as AbortSignal
+    return new Response(new ReadableStream({start(controller){controller.enqueue(new TextEncoder().encode('event: ready\nid: test-cursor\ndata: {}\n\n'))}}),{status:200,headers:{'Content-Type':'text/event-stream'}})
+   }
+   return new Response(JSON.stringify({ownerId:'local-owner',workspaceId:'local',role:'owner'}),{status:200,headers:{'Content-Type':'application/json'}})
+  });vi.stubGlobal('fetch',fetcher)
   render(<App/>);submit();await screen.findByRole('heading',{name:'概览测试'})
-  expect(fetcher).toHaveBeenCalledTimes(1)
+  await waitFor(()=>expect(fetcher).toHaveBeenCalledTimes(2))
   expect(JSON.stringify({local:{...localStorage},session:{...sessionStorage},url:window.location.href,cookie:document.cookie}).includes(token)).toBe(false)
   const before=window.location.hash;fireEvent.click(screen.getByRole('link',{name:'跳到主要内容'}));expect(window.location.hash).toBe(before);expect(document.activeElement?.id).toBe('content')
   fireEvent.click(screen.getByRole('button',{name:'切换深色主题'}));await waitFor(()=>expect(document.documentElement.dataset.theme).toBe('dark'))
+  expect(fetcher.mock.calls.filter(([path])=>path==='/api/v1/events')).toHaveLength(1)
   fireEvent.click(screen.getByRole('button',{name:'断开连接'}));await screen.findByRole('heading',{name:'连接工作空间'});expect((screen.getByLabelText('本地访问凭证') as HTMLInputElement).value).toBe('')
+  expect(streamSignal?.aborted).toBe(true)
  })
  it('rejects malformed credential locally and does not surface server error text',async()=>{
   const fetcher=vi.fn().mockResolvedValue(new Response(JSON.stringify({error:{code:'UNAUTHORIZED',message:token}}),{status:401}));vi.stubGlobal('fetch',fetcher)
@@ -26,5 +35,14 @@ describe('Web local Owner connection boundary',()=>{
   let signal:AbortSignal|undefined
   vi.stubGlobal('fetch',vi.fn((_path:string,init:RequestInit)=>{signal=init.signal as AbortSignal;return new Promise<Response>((_resolve,reject)=>signal!.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')),{once:true}))}))
   const rendered=render(<App/>);submit();await waitFor(()=>expect(signal).toBeDefined());rendered.unmount();expect(signal!.aborted).toBe(true)
+ })
+ it('drops the authenticated session when the realtime endpoint rejects its authority',async()=>{
+  vi.stubGlobal('fetch',vi.fn(async(path:string)=>path==='/api/v1/events'
+   ?new Response('',{status:401})
+   :new Response(JSON.stringify({ownerId:'local-owner',workspaceId:'local',role:'owner'}),{status:200,headers:{'Content-Type':'application/json'}})))
+  render(<App/>);submit()
+  await waitFor(()=>expect(screen.queryByRole('navigation')).toBeNull())
+  await waitFor(()=>expect((screen.getByLabelText('本地访问凭证') as HTMLInputElement).value).toBe(''))
+  expect(JSON.stringify({local:{...localStorage},session:{...sessionStorage},url:window.location.href}).includes(token)).toBe(false)
  })
 })

@@ -47,7 +47,7 @@
 | 路由 | TanStack Router | R1；资源详情、嵌套路由和筛选参数 |
 | 服务端数据 | TanStack Query | R1；查询缓存、mutation 状态和刷新；数据库仍为事实来源 |
 | UI | Tailwind CSS + shadcn/ui | R1；建立产品设计变量、表格、详情面板和审批交互 |
-| 实时状态 | SSE + 普通 HTTP 命令 | R1；断线重连和游标恢复需应用实现 |
+| 实时状态 | SQLite通知日志 + SSE + 普通HTTP命令 | R1-D已实施；认证fetch流、游标恢复、合批失效与轮询补偿，见reviews/r1d |
 | 工作流画布 | React Flow | R2；仅负责可视编辑/展示，执行仍由后端工作流模块管理 |
 | 自动化测试 | Vitest + Playwright | Vitest 沿用；Web 阶段补真实浏览器 E2E |
 | 本地运维 | 前台 CLI + 后续 OS 服务封装 | launchd/systemd 等按平台验收，不依赖终端窗口长期存活 |

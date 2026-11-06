@@ -2,6 +2,9 @@
 import { isAbsolute } from 'node:path'
 import { registerManagementRoutes } from './management-routes.ts'
 import { registerVerificationRoutes } from './verification-routes.ts'
+import { registerChangeStream } from './change-stream.ts'
+import { ChangeFeedRepository } from '../storage/change-feed.ts'
+import { registerIdleConnectionCleanup } from './idle-connections.ts'
 import { loadWebAssets } from './web-assets.ts'
 import Fastify, {
   type FastifyInstance,
@@ -462,6 +465,7 @@ export function createApiServer(options: CreateApiServerOptions): FastifyInstanc
       },
     },
   })
+  registerIdleConnectionCleanup(app)
 
   app.addHook('onRequest', async (request, reply) => {
     setSecurityHeaders(reply)
@@ -532,6 +536,7 @@ export function createApiServer(options: CreateApiServerOptions): FastifyInstanc
 
   registerManagementRoutes(app, {store,settings})
   registerVerificationRoutes(app, {store,settings,dataDir})
+  registerChangeStream(app, { reader: new ChangeFeedRepository({db:store.db,ownerId:settings.ownerId,workspaceId:settings.workspaceId}) })
   webAssets?.register(app)
 
   app.get('/api/v1/health', {

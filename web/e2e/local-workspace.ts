@@ -22,8 +22,14 @@ export async function localWorkspace(prepare?: (fixture: {root:string;dataDir:st
  createLocalApiCredentials(dataDir)
  await prepare?.({root,dataDir,repositoryPath})
  const token=(JSON.parse(readFileSync(join(dataDir,'api-auth.json'),'utf8')) as {token:string}).token
- const child=spawn(process.execPath,[resolve('dist/cli/index.js'),'api-serve','--data-dir',dataDir,'--port','0','--web-root',resolve('web/dist')],{cwd:root,env:{PATH:process.env.PATH,HOME:root,LANG:'C'},stdio:['ignore','pipe','pipe']})
- let stdout='',stderr='';child.stdout.on('data',data=>stdout+=String(data));child.stderr.on('data',data=>stderr+=String(data))
+ let stdout='',stderr='',startupOutput=''
+ const launch=(port:string)=>{
+  const processHandle=spawn(process.execPath,[resolve('dist/cli/index.js'),'api-serve','--data-dir',dataDir,'--port',port,'--web-root',resolve('web/dist')],{cwd:root,env:{PATH:process.env.PATH,HOME:root,LANG:'C'},stdio:['ignore','pipe','pipe']})
+  processHandle.stdout.on('data',data=>{const value=String(data);stdout+=value;startupOutput+=value})
+  processHandle.stderr.on('data',data=>{stderr+=String(data)})
+  return processHandle
+ }
+ let child=launch('0')
  const stop=async(options:{preserveData?:boolean}={})=>{
   if(child.exitCode===null&&child.signalCode===null){
    const exited=once(child,'exit');child.kill('SIGTERM');let timer:ReturnType<typeof setTimeout>|undefined
@@ -31,17 +37,26 @@ export async function localWorkspace(prepare?: (fixture: {root:string;dataDir:st
   }
   if(!options.preserveData)rmSync(root,{recursive:true,force:true})
  }
- let address:string|undefined
- const deadline=Date.now()+12_000
- while(Date.now()<deadline&&!address&&child.exitCode===null){
-  for(const line of stdout.split('\n')){try{const row=JSON.parse(line) as {listening?:boolean;address?:string};if(row.listening&&row.address)address=row.address}catch{/* incomplete line */}}
-  if(!address)await new Promise(resolve=>setTimeout(resolve,25))
+ const waitAddress=async()=>{
+  const deadline=Date.now()+12_000
+  while(Date.now()<deadline&&child.exitCode===null&&child.signalCode===null){
+   for(const line of startupOutput.split('\n')){try{const row=JSON.parse(line) as {listening?:boolean;address?:string};if(row.listening&&row.address)return row.address}catch{/* incomplete bounded startup line */}}
+   await new Promise(resolve=>setTimeout(resolve,25))
+  }
+  throw new Error('Owned management API did not start')
  }
- if(!address){await stop();throw new Error('Owned management API did not start')}
+ let address:string
+ try{address=await waitAddress()}catch(error){await stop();throw error}
+ const restart=async()=>{
+  if(child.exitCode===null&&child.signalCode===null)throw new Error('Stop the owned API before restart')
+  startupOutput='';child=launch(new URL(address).port)
+  const resumed=await waitAddress()
+  if(resumed!==address)throw new Error('Owned API changed its listening address')
+ }
  const request=async(path:string)=>{
   const response=await fetch(`${address}/api/v1${path}`,{headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(5_000)})
   if(response.status!==200)throw new Error('Owned fixture query failed')
   return await response.json() as unknown
  }
- return {address,token,dataDir,repositoryPath,worktreeRoot:join(root,'worktrees'),request,stop,credentialAbsentFromOutput:()=>!(stdout+stderr).includes(token)}
+ return {address,token,dataDir,repositoryPath,worktreeRoot:join(root,'worktrees'),request,stop,restart,credentialAbsentFromOutput:()=>!(stdout+stderr).includes(token)}
 }

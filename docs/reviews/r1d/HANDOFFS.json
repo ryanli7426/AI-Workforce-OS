@@ -1,0 +1,36 @@
+{
+  "reports": {
+    "workforce-codex-realtime-storage-result.md": {
+      "sha256": "c12c7ef5557259e33109ea9877d7377ae15e592014a13e8232423e33fb4c8dcf",
+      "bytes": 889
+    },
+    "workforce-codex-realtime-browser-result.md": {
+      "sha256": "b79920d7675e9e941ee83a62ff86c0d3008d36bba98e4f5075b2de241e75e8ec",
+      "bytes": 770
+    },
+    "workforce-codex-realtime-design-result.md": {
+      "sha256": "cf96c0b675d503dc984c9dca0b09f324c2c1dccddd4b628c9a5fb239af9e6064",
+      "bytes": 6901
+    },
+    "workforce-claude-realtime-http-result.json": {
+      "sha256": "b8d21417074e283e06b82080cebe2c427fe442b639c9df34857b989e5cc93bed",
+      "bytes": 20562
+    },
+    "workforce-pi-realtime-react-result.md": {
+      "sha256": "262443b57f6b580daeed96736ba2ee29fdcfc460c986a16a71988ae8a164cf94",
+      "bytes": 1410
+    },
+    "workforce-codex-realtime-acceptance-result.md": {
+      "sha256": "19c144f46f2c918baa356b36befb88797b57394088cddc261106cbf2939a3269",
+      "bytes": 1179
+    }
+  },
+  "codexModelExplicitlyRequested": "gpt-5.6-sol",
+  "cursorImplementationAttempts": 4,
+  "cursorImplementationResult": "authentication_required_before_implementation",
+  "cursorFinalReviewAttempt": "authentication_required_before_review",
+  "cursorStatusCommand": "reported logged in, but actual print request rejected",
+  "claudeFollowup": "429 usage limit; parent implemented compiled process tests",
+  "piFollowup": "malformed SSE response; parent completed review",
+  "parentOwnsFinalAcceptance": true
+}

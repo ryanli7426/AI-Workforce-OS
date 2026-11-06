@@ -1,5 +1,7 @@
 import type { ManagementCommand, ManagementResult, ManagementAudit } from '../../src/application/management-commands.ts'
 import { createVerificationApi, type VerificationApi } from './verification-api.ts'
+import { createChangeStreamClient } from './change-stream.ts'
+import type { ChangeStreamClient } from './realtime-model.ts'
 export type { ManagementCommand, ManagementResult, ManagementAudit } from '../../src/application/management-commands.ts'
 import type { ProductOverview, ProductTaskListOptions, ProductTaskListResult, ProductTaskDetail, ProductExecutionListOptions, ProductExecutionListResult } from '../../src/application/product-queries.ts'
 import type { LocalTaskCommand, TaskCommandResult } from '../../src/application/task-commands.ts'
@@ -11,6 +13,7 @@ export type { ProductOverview, ProductTaskListOptions, ProductTaskListResult, Pr
 export interface Principal { ownerId: string; workspaceId: string; role: 'owner' }
 export interface ApiClient {
   verification?: VerificationApi
+  changes?: ChangeStreamClient
   executions(options?: ProductExecutionListOptions, signal?: AbortSignal): Promise<ProductExecutionListResult>
   manage(key: string, command: ManagementCommand, signal?: AbortSignal): Promise<ManagementResult>
   managementHistory(kind: 'employee' | 'project', id: string, signal?: AbortSignal): Promise<{items: ManagementAudit[]}>
@@ -650,6 +653,13 @@ export function createApiClient(token: string): ApiClient {
   }
 
   const client: ApiClient = {
+    changes: createChangeStreamClient({open: ({cursor,signal}) => {
+      const headers = new Headers()
+      headers.set('Authorization',authorization)
+      headers.set('Accept','text/event-stream')
+      if(cursor !== undefined) headers.set('Last-Event-ID',cursor)
+      return fetch(`${API_PREFIX}/events`, {method:'GET',headers,signal,cache:'no-store',credentials:'omit',redirect:'error'})
+    }}),
     verification: createVerificationApi({request}),
     async executions(options = {}, signal) {
       const params = new URLSearchParams()

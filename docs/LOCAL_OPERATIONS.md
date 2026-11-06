@@ -165,7 +165,7 @@ API 前缀 `/api/v1`：GET health/me/overview/employees/projects/tasks/tasks/:id
 
 所有写请求需 `Idempotency-Key`；非创建操作还需当前 `expectedVersion`。相同键及请求重放返回原提交结果，键冲突或版本冲突返回409。请求人由服务端 Owner 确定。命令回执与状态变更同一事务提交；API 不启动 Agent 或控制器。验证可通过可信计划异步入队；旧 task-verify 仍提供同步本地检查与显式豁免。API 不接受 passed 字段。SIGINT/SIGTERM 仅关闭 API，保留独立控制器与 Runner。
 
-真实编译后 TCP 验收通过，证据见 reviews/r1/HTTP_API_PILOT.json。首批 Web 的同源启动和真实页面操作见 [Web 操作说明](WEB_OPERATIONS.md)。员工/项目写API与Web治理操作已交付，需显式init增加management-schema1；异步验证接线见下节；SSE、多用户身份和真实钉钉闭环尚未交付。
+真实编译后 TCP 验收通过，证据见 reviews/r1/HTTP_API_PILOT.json。首批 Web 的同源启动和真实页面操作见 [Web 操作说明](WEB_OPERATIONS.md)。员工/项目写API与Web治理操作已交付，需显式init增加management-schema1；异步验证接线见下节；SSE已交付；多用户身份和真实钉钉闭环尚未交付。
 
 ## 持久异步验证（R1-C）
 
@@ -197,3 +197,9 @@ node dist/cli/index.js verification-cancel VERIFICATION_ID --data-dir .workforce
 验证私有证据位于verification-inputs、verification-runners和verifications；input.json包含控制密钥，不应展示、提交或分享。HMAC证明同用户控制平面的结果来源，不提供对恶意同用户可执行文件的OS隔离。平台仍需Runtime范围加固与长期运行验收。
 
 认证API新增：GET verification-plans；POST tasks/:id/verifications；GET tasks/:id/verifications（limit/beforeRowid）；GET verifications/:id；POST verifications/:id/cancel。写请求需Idempotency-Key与明确版本，返回202及verificationId/replayed；入队成功不表示工作进程已启动。计划与作业查询只公开检查元信息，不公开命令参数或签名密钥。完整实现和异常测试见reviews/r1c与tests/verification-*。
+
+## 持久实时通知（R1-D）
+
+显式init安装change-feed-schema1及事务触发器；已有目录需先init再启动新版API，查询/serve不迁移。GET /api/v1/events复用Bearer、Host/Origin校验，可传单一Last-Event-ID请求头，不接受查询参数或URL凭证。change/reset/ready为失效通知协议，HTTP查询仍是事实来源；ready仅在初始回放完成后发出。客户端应正确处理reset后重新查询，不能依赖无限历史。
+
+Controller对账/tick后最多每60秒保留最近50,000条通知；永久Task审计不变。只有API时通知继续积累。通知范围按当前Owner/Workspace，元信息不含任务正文、日志、命令或凭证。心跳10秒、慢消费者断开、连接数上限8；浏览器回退原轮询。完整契约见tasks/R1_REALTIME_CONTRACT.md，真实TCP/编译CLI/Chromium证据见reviews/r1d。

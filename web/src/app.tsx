@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ApiError, createApiClient, type ApiClient, type Principal } from './api.ts'
 import { ExecutionsPage } from './pages/executions.tsx'
 import { TasksPage, TaskPage } from './pages/tasks.tsx'
 import { EmployeesManager, ProjectsManager } from './pages/management.tsx'
 import { OverviewPage, ExecutionPage } from './pages/overview.tsx'
+import { RealtimeStatus } from './realtime.tsx'
 
 interface Connection { api: ApiClient; principal: Principal; cache: QueryClient }
 const NAVIGATION = [ ['/', '总览', '◈'], ['/tasks', '任务中心', '▤'], ['/approvals', '审批与验收', '◇'], ['/employees', 'AI 员工', '♧'], ['/projects', '项目空间', '▧'], ['/executions', '执行中心', '▷'] ] as const
@@ -46,9 +47,12 @@ export function App() {
   useEffect(() => { if (connection) document.getElementById('content')?.focus() }, [route, connection])
   useEffect(() => () => { connection?.cache.clear() }, [connection])
   const connect = (api: ApiClient, principal: Principal) => setConnection({ api, principal, cache: new QueryClient({defaultOptions: {queries: {retry: (count, error) => !(error instanceof ApiError && [401,403,404].includes(error.status)) && count < 1, staleTime: 2000}, mutations: {retry: false}}}) })
+  const disconnect = useCallback(() => {
+    if(connection){void connection.cache.cancelQueries();connection.cache.clear()}
+    setConnection(null)
+  },[connection])
   if (!connection) return <Login onConnect={connect}/>
   const { api, principal, cache } = connection
-  const disconnect = () => { void cache.cancelQueries(); cache.clear(); setConnection(null) }
   let page
   const parts = path.split('/')
   if (path === '/') page = <OverviewPage api={api}/>
@@ -60,5 +64,5 @@ export function App() {
   else if (parts.length === 3 && parts[1] === 'tasks' && SAFE_ID.test(parts[2] ?? '')) page = <TaskPage api={api} ticketId={parts[2]!}/>
   else if (parts.length === 3 && parts[1] === 'executions' && SAFE_ID.test(parts[2] ?? '')) page = <ExecutionPage api={api} executionId={parts[2]!}/>
   else page = <section className="panel empty-state"><h1>页面不存在</h1><a href="#/">返回总览</a></section>
-  return <QueryClientProvider client={cache}><a className="skip-link" href="#content" onClick={event => { event.preventDefault(); document.getElementById('content')?.focus() }}>跳到主要内容</a><div className="app-layout"><aside className="sidebar"><a className="brand" href="#/"><span className="brand-mark">W</span><span>WORKFORCE<span className="brand-subtitle">OPERATING SYSTEM</span></span></a><div className="workspace-label"><span className="workspace-icon">L</span><div><strong>{principal.workspaceId}</strong><small>本地工作空间</small></div></div><p className="nav-label">WORKSPACE</p><nav aria-label="主导航">{NAVIGATION.map(([href,label,icon]) => <a key={href} href={`#${href}`} aria-current={path === href || href === '/tasks' && path.startsWith('/tasks/') ? 'page' : undefined}><span aria-hidden="true">{icon}</span>{label}</a>)}</nav><div className="sidebar-footer"><div className="owner-avatar">O</div><div><strong>本地 Owner</strong><small>{principal.ownerId}</small></div></div></aside><div className="main-layout"><header className="topbar"><div><span className="environment-dot"/> 本地控制平面 <span className="topbar-divider">/</span> 工作空间</div><div className="topbar-actions"><button className="icon-button" onClick={() => setTheme(t => t === 'light' ? 'dark' : 'light')} aria-label={theme === 'light' ? '切换深色主题' : '切换浅色主题'}>{theme === 'light' ? '◐' : '☀'}</button><button className="button secondary small" onClick={disconnect}>断开连接</button></div></header><main id="content" tabIndex={-1} className="page-content" key={route}>{page}</main><footer className="main-footer">AI Workforce OS · 本地优先 · 由人治理<span>执行成功 ≠ 验证通过 ≠ 最终验收</span></footer></div></div></QueryClientProvider>
+  return <QueryClientProvider client={cache}><a className="skip-link" href="#content" onClick={event => { event.preventDefault(); document.getElementById('content')?.focus() }}>跳到主要内容</a><div className="app-layout"><aside className="sidebar"><a className="brand" href="#/"><span className="brand-mark">W</span><span>WORKFORCE<span className="brand-subtitle">OPERATING SYSTEM</span></span></a><div className="workspace-label"><span className="workspace-icon">L</span><div><strong>{principal.workspaceId}</strong><small>本地工作空间</small></div></div><p className="nav-label">WORKSPACE</p><nav aria-label="主导航">{NAVIGATION.map(([href,label,icon]) => <a key={href} href={`#${href}`} aria-current={path === href || href === '/tasks' && path.startsWith('/tasks/') ? 'page' : undefined}><span aria-hidden="true">{icon}</span>{label}</a>)}</nav><div className="sidebar-footer"><div className="owner-avatar">O</div><div><strong>本地 Owner</strong><small>{principal.ownerId}</small></div></div></aside><div className="main-layout"><header className="topbar"><div><span className="environment-dot"/> 本地控制平面 <span className="topbar-divider">/</span> 工作空间</div><div className="topbar-actions"><RealtimeStatus stream={api.changes} onUnauthorized={disconnect}/><button className="icon-button" onClick={() => setTheme(t => t === 'light' ? 'dark' : 'light')} aria-label={theme === 'light' ? '切换深色主题' : '切换浅色主题'}>{theme === 'light' ? '◐' : '☀'}</button><button className="button secondary small" onClick={disconnect}>断开连接</button></div></header><main id="content" tabIndex={-1} className="page-content" key={route}>{page}</main><footer className="main-footer">AI Workforce OS · 本地优先 · 由人治理<span>执行成功 ≠ 验证通过 ≠ 最终验收</span></footer></div></div></QueryClientProvider>
 }

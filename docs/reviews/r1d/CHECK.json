@@ -1,0 +1,33 @@
+{
+  "command": "pnpm check",
+  "exitCode": 0,
+  "checkedAt": "2026-11-06T13:22:14.387807+00:00",
+  "backend": {
+    "files": 62,
+    "tests": 821,
+    "skipped": 0
+  },
+  "web": {
+    "files": 12,
+    "tests": 106,
+    "skipped": 0
+  },
+  "chromium": {
+    "flows": 4,
+    "skipped": 0
+  },
+  "checks": {
+    "backendTypecheck": true,
+    "backendBuild": true,
+    "standaloneCoreSQLiteWithoutNodeModules": true,
+    "compiledCliSmoke": true,
+    "noDeepSeekHarnessPackagesOrImports": true,
+    "webTypecheck": true,
+    "webBuild": true
+  },
+  "logSha256": "5682198a50caa2f0e57035e6eb2d5c5ac53fa5ab46335fb21bba2caf49fd0d8c",
+  "scope": "R1-D durable authenticated invalidation feed and reconnect; not full product completion",
+  "newDependencies": false,
+  "modelExecutionInAcceptanceFixtures": false,
+  "realDingTalkBusinessAcceptance": false
+}

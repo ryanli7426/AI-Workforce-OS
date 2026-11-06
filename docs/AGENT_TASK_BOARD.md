@@ -111,3 +111,11 @@ Cursor Auto新增6路独立实现（含上批已登记的storage一路）：veri
 Codex两路明确gpt-5.6-sol：命令/Core provenance测试，以及真实TCP+编译后独立验证进程的API/DB重启验收。pi只读审查契约；Claude Code提供Coordinator测试和启动身份回执缺陷。父Agent完成队列/对账/原子证据应用、Controller/CLI接线、策略变更处理、可信文件读取加固、初稿错误修复以及真实浏览器验收。
 
 回执、逐项处置及最终门禁位于reviews/r1c。四项真实独立worker集成与页面入队/检查/明确验收通过，仍不代表完整产品、真实钉钉或72小时运行验收。
+
+## 第九批：实时通知（R1-D，2026-11-06）
+
+Cursor Auto四路实现(storage/http/browser/react)在实施前均因Authentication required退出，未产出代码；稍后status虽显示已登录，实际只读复核请求仍同样被拒绝。Cursor累计完成保持38路，不把失败尝试当交付，也不声称有后台任务继续运行。
+
+实际交付：Codex明确gpt-5.6-sol四路(storage/browser/design-review/真实TCP验收)，Claude HTTP，pi React；父Agent完成schema/Controller/API/App接线、心跳/关闭/通知依赖修正、编译CLI和Chromium验收。Claude后续进程测试遭429限额、pi后续审查遭无效SSE响应，父Agent接管，没有静默重启或替换模型。
+
+最终pnpm check：821后端、106前端、4条真实浏览器流程。报告哈希、审查处置和截图见reviews/r1d。完成的是本阶段通知能力，不是完整产品或真实IM交付。
