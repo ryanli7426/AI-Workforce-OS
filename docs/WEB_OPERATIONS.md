@@ -110,3 +110,7 @@ Controller最多每60秒保留最近50,000条通知，不影响领域审计。�
 导航新增Runtime注册。页面读取认证/api/v1/runtimes，分别展示协议版本、实例配置、尚未检查的健康状态和驱动支持能力；刷新只重新读取服务配置快照，不启动CLI。当前仍由本机configure管理Claude路径，改变后需重启API/Controller读取快照。
 
 结构化结果支持，其余当前未实现的会话交互及文件系统隔离明确显示不支持，不提供无效按钮。Runner恢复观察并不说明Agent支持会话恢复。正式驱动只有Claude Code，当前无多实例配置/动态插件/健康探测。编译CLI与真实Chromium一致性及截图见reviews/r1e。
+
+## Runner隔离基础与Claude能力边界（R1-F）
+
+底层required Runner与无模型OS probe已经交付，但Runtime注册页中Claude的文件系统隔离继续显示不支持：实际Claude2.1.181版本命令尚未能在该严格策略内启动（SIGTRAP），不能用Nodefixture通过修改产品能力。页面/API/configure不提供未经验收的隔离开关。低层证据、只读containment-probe及限制见LOCAL_OPERATIONS.md和reviews/r1f。

@@ -65,3 +65,9 @@ Cursor本批4路实现与后续1次只读复核均在执行前被认证拒绝，
 调度器不再直接构造Claude适配器，通过可信RuntimeRegistry选择驱动；启动身份/预算校验与错误驱动恢复保护已实施。CLI/API/Web目录一致，严格区分配置/健康/能力。自有独立协议fixture驱动经真实Runner/重启/不可变产物进入REVIEW，不能算第二产品Runtime或多实例完成。
 
 父Agent实施和集成，本地Codex明确gpt-5.6-sol做范围设计审查及最终独立代码审查。完整836后端/110前端/5浏览器门禁通过；证据见reviews/r1e。当前filesystemIsolation=false；后续先做OS范围Provider与自有负向probe，再处理多实例身份/路由和第二驱动，真实DingTalk业务目标仍缺。完整产品继续推进。
+
+## R1-F：required Runner隔离基础
+
+低层Runner显式v2 required分支、固定macOS srt Provider、逐执行真实OS负向probe、HMAC私有证据、准备心跳/停止/预算与保守UNKNOWN已实施。旧v1继续可观察、不会自动升级。独立审查发现并修复隐式共享临时目录写许可、cwd包住私有Runner根、代理本地地址白名单问题；真实回归验证修正。清理失败不得先发布SUCCEEDED，另有故障测试。
+
+完整858后端/110前端/5条浏览器门禁、frozen安装、无node_modules Core smoke通过；见reviews/r1f。真实Claude2.1.181 --version在严格边界内仍SIGTRAP，因此正式settings/能力不切换、没有模型隔离成功声明。下一步处理真实二进制兼容，再分别验收认证/配置/模型/应用接线。完整产品、其他OS、真实IM、组织/工作流与72小时运行仍未完成。

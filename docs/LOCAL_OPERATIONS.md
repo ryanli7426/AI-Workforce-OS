@@ -215,3 +215,18 @@ node dist/cli/index.js runtimes --data-dir .workforce
 当前正式settings仍只有claude-local/claude-code；未提供多实例或第二产品Runtime。适配器由可信应用注册，配置不能动态加载代码。未知驱动在Assignment前拒绝；新Execution持久化驱动名称/协议/能力指纹；未收集历史Execution的驱动或指纹不匹配时保留Assignment并要求恢复原配置，不尝试用新驱动解释旧输出。已结束的历史Assignment不因此阻断查询。
 
 Runner的恢复观察与Agent会话恢复分别处理。Claude当前结构化结果为支持，执行中投递/会话恢复/Agent监控重连/暂停和强文件系统隔离为不支持。范围加固尚待实际OS边界与负向probe验收；详见tasks/RUNTIME_CONTAINMENT_PLAN.md和reviews/r1e。
+
+## 显式OS隔离诊断与Runner required模式（R1-F）
+
+```sh
+# 本机Homebrew Node示例：显式批准诊断进程读取其运行库目录。
+node dist/cli/index.js containment-probe --read-path /opt/homebrew/Cellar
+```
+
+--read-path可重复，必须为明确绝对路径。此例是本机代码/库的只读例外，生产策略应按实际依赖收窄；不会授予写权限或隐式读取HOME。未提供足够运行库、平台不支持或任何负向probe不通过，退出1并返回available:false；退出0仅表示这一次provider/config的无模型probe通过，不是Claude健康检查。
+
+命令不读数据库、业务文档或认证配置，不调用模型；临时文件均自有，网络默认拒绝。不能确认辅助进程清理时保留私有证据，不能靠重新运行绕过UNKNOWN。
+
+底层Runner现支持显式LaunchSpec.containment={version:1,mode:"required",provider:"srt-macos",readOnlyPaths:[...],allowedDomains:[]}。包含此项才产生v2；无此项仍为原v1。required失败不执行目标；通过后每个目标都附有与请求/Runner绑定的私有containment.json证据。该文件使用原控制token认证，不应公开request.json或签名原件。
+
+正式configure/start/run-once的Claude设置尚未开启该分支；Web能力仍如实显示不支持文件系统隔离。真实Claude --version在严格边界内SIGTRAP，未通过兼容性验收。详见tasks/R1_CONTAINMENT_CONTRACT.md及reviews/r1f。不要因Node fixture通过就手动更改产品能力或放开用户目录。

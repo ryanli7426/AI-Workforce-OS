@@ -94,3 +94,9 @@ SSE只通知DB状态变化，stdout追加仍轮询，不改变执行/验证/人�
 统一Runtime协议、可信注册表、Orchestrator驱动选择和CLI/API/Web目录已集成；当前单Claude实例，不声称多Runtime/能力路由完成。真实独立Node fixture驱动验证了Runner/重启/产物链路与错误驱动不释放Assignment。完整门禁836后端、110前端、5浏览器流程通过，证据见reviews/r1e。
 
 范围设计审查确认当前Worktree/tools不足以提供OS边界；能力明确false。已记录Provider/版本兼容/自有哨兵负向probe方案，未安装沙箱依赖、升级用户CLI或调用真实模型。
+
+## 2026-11-07：required Runner隔离基础
+
+真实macOSProvider和自有负向OS probe已接入显式Runner v2；签名证据绑定请求/Runner，旧v1不升级。真实进程覆盖拒绝、重复观察、超时/取消及私有根保护，清理不确定保持UNKNOWN。独立Codex gpt-5.6-sol审查与证据测试、父Agent修正和验收见reviews/r1f。完整858后端/110前端/5浏览器门禁与frozen安装通过。
+
+本机Claude --version在该严格策略内SIGTRAP；不是成功隔离试运行。默认应用settings未开启required，filesystemIsolation仍false，模型任务和登录没有验收。后续先修真实二进制兼容，再做认证/模型pilot；未对未知范围采用裸进程fallback。

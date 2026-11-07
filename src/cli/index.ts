@@ -11,6 +11,7 @@ import { createBackup } from '../storage/backup.ts'
 import { applicationRepositories, initializeApplicationSchema } from '../storage/application-store.ts'
 import { LAO_SCHEMA_VERSION, LocalStore } from '../storage/store.ts'
 import type { EmployeeCreateInput } from '../workforce/employees.ts'
+import { runContainmentCommand } from './containment-commands.ts'
 import { runTaskCommand } from './task-commands.ts'
 import { runControllerCommand } from './controller-commands.ts'
 import { runApiCommand } from './api-commands.ts'
@@ -55,6 +56,7 @@ Commands:
   stop                   Request graceful controller stop (Runners remain independent)
   controller-status      Query controller ownership and process liveness
   logs ID                Read scoped execution logs (--tail-bytes N, --execution-id ID)
+  containment-probe      Test required macOS OS boundary (repeat --read-path for trusted libraries)
   runtimes               List configured Runtime instances and truthful capabilities (no probe)
   api-init               Create private local API credentials (prints path only)
   api-serve              Run authenticated loopback HTTP API (--port N, --allow-origin URL, --web-root DIR)
@@ -425,7 +427,7 @@ function isMainModule(): boolean {
 
 /** Async application entry; the legacy synchronous management dispatcher remains importable. */
 export async function runApplicationCli(argv: readonly string[], io: CliIO = process): Promise<number> {
-  return runVerificationCommand(argv, io) ?? await runApiCommand(argv, io) ?? await runControllerCommand(argv, io) ?? await runTaskCommand(argv, io) ?? runCli(argv, io)
+  return await runContainmentCommand(argv, io) ?? runVerificationCommand(argv, io) ?? await runApiCommand(argv, io) ?? await runControllerCommand(argv, io) ?? await runTaskCommand(argv, io) ?? runCli(argv, io)
 }
 
 if (isMainModule()) process.exitCode = await runApplicationCli(process.argv.slice(2))

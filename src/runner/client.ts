@@ -1,4 +1,6 @@
 /** Detached Runner client: private-file handshake, idempotent start, validated observe/stop. */
+import {readContainmentEvidence} from '../containment/evidence.ts'
+import {validateContainmentEvidence} from '../containment/policy.ts'
 import { RUNTIME_ENV_CHANNEL, validateRuntimeEnvironment } from './environment.ts'
 import { spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
@@ -16,6 +18,7 @@ import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { EXECUTION_STATES, TERMINAL_EXECUTION_STATES, type ExecutionState } from '../execution/model.ts'
 import {
+  canonicalLaunchSpec,
   assertExecutionId,
   validateLaunchSpec,
   type LaunchSpec,
@@ -62,6 +65,10 @@ export class RunnerClient {
     const cwd = lstatSync(spec.cwd)
     if (!cwd.isDirectory() || cwd.isSymbolicLink()) throw new Error('Launch cwd must be a real directory')
     this.#ensurePrivateRoot(true)
+    if(spec.containment){
+      const workRoot=realpathSync(spec.cwd),controlRoot=realpathSync(this.#root)
+      if(workRoot===controlRoot||controlRoot.startsWith(workRoot+sep)||workRoot.startsWith(controlRoot+sep))throw new Error('Contained worktree and private Runner root must be disjoint')
+    }
     const dir = this.#executionDir(spec.executionId)
     try {
       mkdirSync(dir, { mode: PRIVATE_DIR_MODE })
@@ -74,7 +81,7 @@ export class RunnerClient {
     this.#assertInsideRoot(dir)
 
     const token = randomBytes(32).toString('hex')
-    const request: RunnerRequest = { version: 1, token, spec: cloneSpec(spec) }
+    const request: RunnerRequest = { version: spec.containment === undefined ? 1 : 2, token, spec: cloneSpec(spec) }
     writeOwnedFile(join(dir, 'request.json'), `${JSON.stringify(request)}\n`)
 
     try {
@@ -158,6 +165,7 @@ export class RunnerClient {
         throw new Error('Malformed events.jsonl: invalid JSON in completed line')
       }
       const event = validateEvent(parsed, request)
+      this.#validateContainment(dir,request,event)
       if (event.sequence !== expected) throw new Error(`Malformed events.jsonl: expected sequence ${expected}`)
       expected += 1
       events.push(event)
@@ -236,7 +244,8 @@ export class RunnerClient {
     }
     if (!parsed || typeof parsed !== 'object') throw unknownError('Malformed request.json')
     const value = parsed as Partial<RunnerRequest>
-    if (value.version !== 1 || typeof value.token !== 'string' || !/^[0-9a-f]{64}$/.test(value.token)) {
+    if(Object.keys(value).some(key=>!['version','token','spec'].includes(key)))throw unknownError('Unrecognized request fields')
+    if (![1,2].includes(value.version as number) || typeof value.token !== 'string' || !/^[0-9a-f]{64}$/.test(value.token)) {
       throw unknownError('Unrecognized request.json')
     }
     try {
@@ -244,7 +253,8 @@ export class RunnerClient {
     } catch (error) {
       throw unknownError(`Invalid request spec: ${errorMessage(error)}`)
     }
-    return { version: 1, token: value.token, spec: cloneSpec(value.spec) }
+    if ((value.version===1&&value.spec.containment!==undefined)||(value.version===2&&value.spec.containment===undefined))throw unknownError('Containment protocol downgrade refused')
+    return { version: value.version!, token: value.token, spec: cloneSpec(value.spec) }
   }
 
   #readSnapshot(dir: string, request: RunnerRequest): RunnerSnapshot {
@@ -257,7 +267,21 @@ export class RunnerClient {
     } catch {
       throw unknownError('Malformed state.json')
     }
-    return validateSnapshot(parsed, request)
+    const snapshot=validateSnapshot(parsed, request)
+    this.#validateContainment(dir,request,snapshot)
+    return snapshot
+  }
+
+  #validateContainment(dir:string,request:RunnerRequest,snapshot:RunnerSnapshot):void {
+    if(request.version===1){if(snapshot.containment!==undefined)throw unknownError('Legacy execution cannot claim containment');return}
+    if(snapshot.containment===undefined){
+      if(snapshot.processId!==undefined||snapshot.state==='RUNNING'||snapshot.state==='SUCCEEDED')throw unknownError('Required containment proof is missing')
+      return
+    }
+    try{
+      const evidence=readContainmentEvidence(join(dir,'containment.json'),request,snapshot.runnerId)
+      if(JSON.stringify(evidence)!==JSON.stringify(snapshot.containment))throw new Error('Containment proof differs from snapshot')
+    }catch{throw unknownError('Required containment proof could not be authenticated')}
   }
 
   #observe(snapshot: RunnerSnapshot): RunnerSnapshot {
@@ -303,20 +327,7 @@ export class RunnerClient {
   }
 }
 
-function cloneSpec(spec: LaunchSpec): LaunchSpec {
-  return {
-    executionId: spec.executionId,
-    assignmentId: spec.assignmentId,
-    ticketId: spec.ticketId,
-    generation: spec.generation,
-    command: spec.command,
-    args: [...spec.args],
-    cwd: spec.cwd,
-    timeoutMs: spec.timeoutMs,
-    maxOutputBytes: spec.maxOutputBytes,
-    graceMs: spec.graceMs,
-  }
-}
+function cloneSpec(spec: LaunchSpec): LaunchSpec { return canonicalLaunchSpec(spec) }
 
 function stableSpec(spec: LaunchSpec): string {
   return JSON.stringify(cloneSpec(spec))
@@ -346,7 +357,8 @@ function runnerProcessAlive(pid: number): boolean {
 function validateSnapshot(value: unknown, request: RunnerRequest): RunnerSnapshot {
   if (!value || typeof value !== 'object') throw unknownError('Malformed state.json')
   const s = value as Partial<RunnerSnapshot>
-  if (s.version !== 1) throw unknownError('Unrecognized state version')
+  if (s.version !== request.version) throw unknownError('Unrecognized state version')
+  if(s.containment!==undefined){try{validateContainmentEvidence(s.containment)}catch{throw unknownError('Invalid containment evidence')}}
   if (s.executionId !== request.spec.executionId) throw unknownError('State executionId mismatch')
   if (s.assignmentId !== request.spec.assignmentId) throw unknownError('State assignmentId mismatch')
   if (s.ticketId !== request.spec.ticketId) throw unknownError('State ticketId mismatch')

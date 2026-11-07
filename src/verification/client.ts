@@ -12,7 +12,7 @@ import {
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { RunnerClient } from '../runner/client.ts'
-import { validateLaunchSpec, type LaunchSpec, type RunnerEvent, type RunnerSnapshot } from '../runner/protocol.ts'
+import { canonicalLaunchSpec, validateLaunchSpec, type LaunchSpec, type RunnerEvent, type RunnerSnapshot } from '../runner/protocol.ts'
 import { TERMINAL_EXECUTION_STATES, type ExecutionState } from '../execution/model.ts'
 import type { VerificationJobRequest } from './model.ts'
 import type { VerificationReport } from './local-checks.ts'
@@ -291,20 +291,7 @@ export class VerificationRunnerClient {
   }
 }
 
-function stableLaunchSpec(spec: LaunchSpec): string {
-  return JSON.stringify({
-    executionId: spec.executionId,
-    assignmentId: spec.assignmentId,
-    ticketId: spec.ticketId,
-    generation: spec.generation,
-    command: spec.command,
-    args: [...spec.args],
-    cwd: spec.cwd,
-    timeoutMs: spec.timeoutMs,
-    maxOutputBytes: spec.maxOutputBytes,
-    graceMs: spec.graceMs,
-  })
-}
+function stableLaunchSpec(spec: LaunchSpec): string { return JSON.stringify(canonicalLaunchSpec(spec)) }
 
 function assertRunnerResultConsistency(
   snapshot: RunnerSnapshot,

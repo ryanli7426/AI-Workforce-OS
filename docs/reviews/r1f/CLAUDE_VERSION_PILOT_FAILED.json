@@ -1,0 +1,15 @@
+{
+  "kind": "actual-installed-Claude-binary-version-only",
+  "state": "FAILED",
+  "exitCode": null,
+  "signal": "SIGTRAP",
+  "reason": "process exited on signal SIGTRAP",
+  "stderrBytes": 0,
+  "proofVerified": true,
+  "recognizedVersion": false,
+  "modelTaskExecuted": false,
+  "authenticationChecked": false,
+  "networkAllowedDomains": 0,
+  "acceptance": "failed; not a Claude containment or authentication acceptance",
+  "defaultRuntimeChanged": false
+}

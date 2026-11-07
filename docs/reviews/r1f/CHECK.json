@@ -1,0 +1,37 @@
+{
+  "command": "pnpm check",
+  "exitCode": 0,
+  "checkedAt": "2026-11-07T00:28:23.650383+00:00",
+  "backend": {
+    "files": 68,
+    "tests": 858,
+    "skipped": 0
+  },
+  "web": {
+    "files": 14,
+    "tests": 110,
+    "skipped": 0
+  },
+  "chromium": {
+    "flows": 5,
+    "skipped": 0
+  },
+  "checks": {
+    "backendTypecheck": true,
+    "backendBuild": true,
+    "standaloneCoreSQLiteWithoutNodeModules": true,
+    "compiledCliSmoke": true,
+    "noDeepSeekHarnessPackagesOrImports": true,
+    "webTypecheck": true,
+    "webBuild": true,
+    "frozenLockfileIgnoreScriptsInstall": true
+  },
+  "logSha256": "61c4735cebae6f678f2d26bc27af276f3289d21946a2bd917ebffa168b85c3e7",
+  "scope": "R1-F required low-level Runner containment and actual macOS owned-fixture probes; not successful Claude containment or full product completion",
+  "osProbePlatform": "darwin-arm64",
+  "containmentProvider": "@anthropic-ai/sandbox-runtime@0.0.81",
+  "transitiveOverride": "@anthropic-ai/sandbox-runtime>zod@3.25.76",
+  "realClaudeVersionOnlyPilot": "FAILED SIGTRAP; no model/authentication acceptance",
+  "realModelTaskExecuted": false,
+  "realDingTalkBusinessAcceptance": false
+}

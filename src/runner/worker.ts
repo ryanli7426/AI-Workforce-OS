@@ -1,3 +1,5 @@
+import {signContainmentEvidence} from '../containment/evidence.ts'
+import type {PreparedContainment} from '../containment/srt.ts'
 import { StreamingRedactor } from '../security/redaction.ts'
 import { RUNTIME_ENV_CHANNEL, validateRuntimeEnvironment } from './environment.ts'
 import { spawn, type ChildProcessByStdio } from 'node:child_process'
@@ -11,10 +13,11 @@ import {
   lstatSync,
   openSync,
   readFileSync,
+  realpathSync,
   renameSync,
   writeSync,
 } from 'node:fs'
-import { basename, dirname, isAbsolute, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { randomUUID, timingSafeEqual } from 'node:crypto'
 import type { Readable } from 'node:stream'
@@ -76,11 +79,12 @@ function readRequest(requestPath: string): RunnerRequest {
     if (Object.keys(request).some(key => !['version', 'token', 'spec'].includes(key))) {
       throw new Error('Unknown runner request fields')
     }
-    if (request.version !== 1) throw new Error('Unsupported runner request version')
+    if (request.version !== 1 && request.version !== 2) throw new Error('Unsupported runner request version')
     if (typeof request.token !== 'string' || !request.token || request.token.length > 4096 || request.token.includes('\0')) {
       throw new Error('Invalid runner token')
     }
     validateLaunchSpec(request.spec)
+    if((request.version===1&&request.spec.containment!==undefined)||(request.version===2&&request.spec.containment===undefined))throw new Error('Containment protocol downgrade refused')
     return request as RunnerRequest
   } finally {
     closeSync(fd)
@@ -191,6 +195,7 @@ export async function runWorker(requestPath: string): Promise<void> {
   let stdoutFd: number | undefined
   let stderrFd: number | undefined
   let child: RuntimeChild | undefined
+  let prepared:PreparedContainment|undefined
 
   try {
     lockFd = openPrivate(lockPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL)
@@ -204,7 +209,7 @@ export async function runWorker(requestPath: string): Promise<void> {
 
     const startedAt = new Date().toISOString()
     let snapshot: RunnerSnapshot = {
-      version: 1,
+      version: request.version,
       executionId: spec.executionId,
       assignmentId: spec.assignmentId,
       ticketId: spec.ticketId,
@@ -258,10 +263,61 @@ export async function runWorker(requestPath: string): Promise<void> {
       writeSnapshot()
     }
 
+    const closeContainmentBeforeTerminal=async(details:Partial<RunnerSnapshot>={}):Promise<boolean>=>{
+      if(!prepared)return true
+      try{await prepared.close();return true}catch{
+        emitLifecycle('UNKNOWN',{...details,reason:'Containment helper termination could not be confirmed'})
+        return false
+      }
+    }
+
     emitLifecycle('STARTING')
 
+    let targetCommand=spec.command,targetArgs=[...spec.args]
+    if(request.version===2){
+      const abort=new AbortController(),preflightAt=Date.now()
+      let interrupted=false,persistenceFailure=false
+      const timer=setInterval(()=>{
+        try{
+          heartbeat()
+          if(readAuthenticatedStop(stopPath,token)||Date.now()-preflightAt>=10_000){interrupted=true;abort.abort()}
+        }catch{persistenceFailure=true;abort.abort()}
+      },HEARTBEAT_MS)
+      try{
+        const controlRoot=realpathSync(dirname(executionDirectory))
+        const workRoot=realpathSync(spec.cwd)
+        if(controlRoot===workRoot||controlRoot.startsWith(workRoot+sep)||workRoot.startsWith(controlRoot+sep))throw new Error('Contained worktree and private Runner root must be disjoint')
+        for(const input of spec.containment!.readOnlyPaths){
+          const path=realpathSync(input)
+          if(path===controlRoot||controlRoot.startsWith(path+sep)||path.startsWith(controlRoot+sep))throw new Error('Containment cannot expose private Runner controls')
+        }
+        const {prepareContainment}=await import('../containment/srt.ts')
+        prepared=await prepareContainment(spec.cwd,spec.containment!,abort.signal)
+        if(interrupted||abort.signal.aborted||readAuthenticatedStop(stopPath,token))throw new Error('Containment preparation interrupted')
+        prepared.assertIdentity()
+        const proof=signContainmentEvidence(request,runnerId,prepared.evidence)
+        const proofFd=openPrivate(resolve(executionDirectory,'containment.json'),constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL)
+        try{writeAll(proofFd,Buffer.from(JSON.stringify(proof)+'\n'));fsyncSync(proofFd)}finally{closeSync(proofFd)}
+        fsyncSync(directoryFd)
+        snapshot={...snapshot,containment:prepared.evidence}
+        emitLifecycle('STARTING')
+        const wrapped=await prepared.wrap(spec.command,spec.args)
+        if(abort.signal.aborted||readAuthenticatedStop(stopPath,token))throw new Error('Containment preparation interrupted')
+        prepared.assertIdentity()
+        targetCommand=wrapped.command;targetArgs=wrapped.args
+      }catch(error){
+        if(errorCode(error)==='CONTAINMENT_UNKNOWN'){emitLifecycle('UNKNOWN',{reason:'Containment helper termination could not be confirmed; target was not launched'});return}
+        if(persistenceFailure)throw new Error('Containment preflight persistence failed')
+        if(!await closeContainmentBeforeTerminal())return
+        emitLifecycle('FAILED',{finishedAt:new Date().toISOString(),reason:interrupted||readAuthenticatedStop(stopPath,token)?'Required containment interrupted before target launch':'Required containment could not be established; target was not launched'})
+        return
+      }finally{clearInterval(timer)}
+    }
+
     const runtimeEnvironment = minimalEnvironment()
-    const secrets = Object.entries(runtimeEnvironment).filter(([name, value]) => /KEY|TOKEN/.test(name) && !!value).map(([, value]) => value!)
+    if(prepared)runtimeEnvironment.TMPDIR=prepared.tempDir
+
+    const secrets = [...Object.entries(runtimeEnvironment).filter(([name, value]) => /KEY|TOKEN/.test(name) && !!value).map(([, value]) => value!),...(prepared?.secrets()??[])]
     const redactors = { stdout: new StreamingRedactor({ secrets, maxPendingBytes: 1024 * 1024 }), stderr: new StreamingRedactor({ secrets, maxPendingBytes: 1024 * 1024 }) }
     let redactorsEnded = false
     const flushRedactors = (): void => {
@@ -282,7 +338,7 @@ export async function runWorker(requestPath: string): Promise<void> {
     let acceptingOutput = true
 
     try {
-      child = spawn(spec.command, spec.args, {
+      child = spawn(targetCommand, targetArgs, {
         cwd: spec.cwd,
         detached: POSIX,
         shell: false,
@@ -349,7 +405,7 @@ export async function runWorker(requestPath: string): Promise<void> {
       fsyncSync(stderrFd)
       const reason = `child startup failed (${errorCode(spawnError)})`
       if (child && !childClosed) emitLifecycle('UNKNOWN', { reason: 'child startup closure was not confirmed' })
-      else emitLifecycle('FAILED', { finishedAt: new Date().toISOString(), reason })
+      else if(await closeContainmentBeforeTerminal())emitLifecycle('FAILED', { finishedAt: new Date().toISOString(), reason })
       return
     }
 
@@ -476,6 +532,7 @@ export async function runWorker(requestPath: string): Promise<void> {
       return
     }
 
+    if(!await closeContainmentBeforeTerminal({processId,exitCode,signal:exitSignal}))return
     const finishedAt = new Date().toISOString()
     if (termination) {
       if (termination.kind === 'manual') {
@@ -510,6 +567,7 @@ export async function runWorker(requestPath: string): Promise<void> {
     }
     throw error
   } finally {
+    if(prepared){try{await prepared.close(child?.pid!==undefined&&processGroupAlive(child.pid))}catch{/* no containment downgrade; request/proof remain private evidence */}}
     for (const fd of [stderrFd, stdoutFd, eventsFd, directoryFd, lockFd]) {
       if (fd !== undefined) {
         try { closeSync(fd) } catch { /* best-effort cleanup; worker.lock remains on disk */ }

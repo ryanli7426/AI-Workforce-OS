@@ -125,3 +125,11 @@ Cursor Auto四路实现(storage/http/browser/react)在实施前均因Authenticat
 父Agent实施Runtime协议/注册表、应用/CLI/API/Web接线、进程/恢复/浏览器测试。两个本地Codex任务明确gpt-5.6-sol：文件系统范围只读设计审查、注册表最终只读代码审查。Cursor实际认证此前仍失败，本批未重复消耗失败请求；累计完成保持38路。无真实模型任务、真实IM或历史生产Task变更。
 
 完整门禁836后端/110前端/5条Chromium流程；范围加固仅完成设计，不计隔离实现验收。报告与处置见reviews/r1e。
+
+## 第十一批：Runner required隔离基础（R1-F，2026-11-07）
+
+父Agent实施固定macOSProvider、策略/probe/签名证据、Runner协议/lifecycle、CLI和真实OS/进程测试。四路本地Codex任务明确gpt-5.6-sol：只读设计、实现审查、纠正复核、证据测试。仅证据测试拥有tests/containment-evidence.spec.ts，其余只读；父Agent逐项修复并验收，没有把review自报通过等同最终门禁。Cursor本批未重复失败认证请求，累计完成仍38路。
+
+发现并修复srt默认共享/tmp/claude写许可、嵌套私有Runner根暴露、代理本地地址许可；复核无剩余高/中风险问题（审查范围内）。父Agent另修复清理顺序，不能确认辅助服务清理时UNKNOWN不释放任务。完整858后端/110前端/5浏览器流程通过。
+
+真实Claude只做--version兼容probe并失败SIGTRAP，没有模型/认证/真实IM验收；正式Claude能力保持false。交付回执、父审处置、失败证据和门禁见reviews/r1f。

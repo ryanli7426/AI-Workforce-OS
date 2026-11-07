@@ -1,0 +1,3 @@
+# zod 3.25.0 publishes no dist; pin the compatible v3 runtime used by srt.
+overrides:
+  '@anthropic-ai/sandbox-runtime>zod': 3.25.76

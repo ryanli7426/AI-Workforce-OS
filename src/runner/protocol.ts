@@ -1,4 +1,5 @@
 /** Versioned private-file Runner protocol; credentials are never accepted in launch specs. */
+import {cloneContainment,validateContainmentRequirement,type ContainmentRequirement,type ContainmentEvidence} from '../containment/policy.ts'
 import { isAbsolute } from 'node:path'
 import type { ExecutionState } from '../execution/model.ts'
 export interface LaunchSpec {
@@ -12,10 +13,11 @@ export interface LaunchSpec {
   timeoutMs: number
   maxOutputBytes: number
   graceMs: number
+  containment?: ContainmentRequirement
 }
-export interface RunnerRequest { version: 1; token: string; spec: LaunchSpec }
+export interface RunnerRequest { version: 1 | 2; token: string; spec: LaunchSpec }
 export interface RunnerSnapshot {
-  version: 1
+  version: 1 | 2
   executionId: string
   assignmentId: string
   ticketId: string
@@ -34,6 +36,7 @@ export interface RunnerSnapshot {
   reason?: string
   stdoutBytes: number
   stderrBytes: number
+  containment?: ContainmentEvidence
 }
 export interface RunnerEvent extends RunnerSnapshot { at: string }
 export interface StopRequest { version: 1; token: string; reason: string }
@@ -43,8 +46,9 @@ export function assertExecutionId(id: string): void {
 export function validateLaunchSpec(value: unknown): asserts value is LaunchSpec {
   if (!value || typeof value !== 'object') throw new Error('Invalid launch spec')
   const s = value as LaunchSpec
-  const fields = ['executionId','assignmentId','ticketId','generation','command','args','cwd','timeoutMs','maxOutputBytes','graceMs']
+  const fields = ['executionId','assignmentId','ticketId','generation','command','args','cwd','timeoutMs','maxOutputBytes','graceMs','containment']
   if (Object.keys(s).some(key => !fields.includes(key))) throw new Error('Unknown launch fields')
+  if (s.containment !== undefined) validateContainmentRequirement(s.containment)
   assertExecutionId(s.executionId)
   for (const field of ['assignmentId', 'ticketId', 'command', 'cwd'] as const)
     if (typeof s[field] !== 'string' || !s[field].trim() || s[field].includes('\0')) throw new Error(`Invalid launch ${field}`)
@@ -53,4 +57,14 @@ export function validateLaunchSpec(value: unknown): asserts value is LaunchSpec 
   if (!Array.isArray(s.args) || s.args.some(a => typeof a !== 'string' || a.includes('\0'))) throw new Error('Invalid launch arguments')
   for (const field of ['timeoutMs', 'maxOutputBytes', 'graceMs'] as const)
     if (!Number.isSafeInteger(s[field]) || s[field] < 1) throw new Error(`Invalid launch ${field}`)
+}
+
+/** One canonical serializer for reservation/replay/verification and signed containment evidence. */
+export function canonicalLaunchSpec(spec:LaunchSpec):LaunchSpec {
+  validateLaunchSpec(spec)
+  return {
+    executionId:spec.executionId,assignmentId:spec.assignmentId,ticketId:spec.ticketId,generation:spec.generation,
+    command:spec.command,args:[...spec.args],cwd:spec.cwd,timeoutMs:spec.timeoutMs,maxOutputBytes:spec.maxOutputBytes,graceMs:spec.graceMs,
+    ...(spec.containment===undefined?{}:{containment:cloneContainment(spec.containment)}),
+  }
 }

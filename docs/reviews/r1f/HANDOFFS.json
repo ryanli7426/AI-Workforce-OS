@@ -1,0 +1,25 @@
+{
+  "delegatedModelExplicitlyRequested": "gpt-5.6-sol",
+  "reports": {
+    "workforce-r1f-runner-design-review.md": {
+      "sha256": "496802c38b076cb21cef5abcf47364021cec8a61078e430ca2e283d4ea67828b",
+      "bytes": 6507
+    },
+    "workforce-r1f-code-review.md": {
+      "sha256": "a8f00a5375aebf4fc3e68b0c0080c3ca45e05d302d01d95690e1390935430800",
+      "bytes": 4914
+    },
+    "workforce-r1f-correction-review.md": {
+      "sha256": "e40e8169680d0d7478503a36a5ca027d9d252df56a7bd644b34b8302a20010e9",
+      "bytes": 2644
+    },
+    "workforce-r1f-evidence-tests.md": {
+      "sha256": "90254fcf25cf96c8bfbc340ee81e46088570139f1ec6a189fcf75041a9f72bc8",
+      "bytes": 468
+    }
+  },
+  "parentOwnsProductionImplementationIntegrationAndAcceptance": true,
+  "codexOwnedFile": "tests/containment-evidence.spec.ts",
+  "cursorCompletedTasksAdded": 0,
+  "realBusinessTaskOrIMOperationExecuted": false
+}
